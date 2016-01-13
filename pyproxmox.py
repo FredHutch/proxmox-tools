@@ -1,4 +1,8 @@
 """
+
+Taken from here and slightly modified. 
+https://github.com/Daemonthread/pyproxmox
+
 A python wrapper for the Proxmox 2.x API.
 
 Example usage:

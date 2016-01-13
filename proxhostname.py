@@ -7,8 +7,6 @@ import sys, os, json, fileinput, socket, pyproxmox
 
 PROXHOST='proxmox.fhcrc.org'
 NODES=['euler', 'lagrange']
-USER='phsdemo3@FHCRC.ORG'
-PWD='EEJYb5zxy8c96sXnNSF9DBhv'
 
 def getmac(interface):
     try:
@@ -24,12 +22,21 @@ def getmacs():
         macs.append(getmac(n))
     return macs
 
-#proxmox = ProxmoxAPI(PROXHOST, user=USER, password=PWD, verify_ssl=False)
+def getScriptPath():
+    return os.path.dirname(os.path.realpath(sys.argv[0]))
 
+try:
+    user, pwd = open(getScriptPath()+'/creds').readline().strip().split("|")
+except:
+    print('Could not find creds file. Exiting.')
+    sys.exit()
+
+#proxmox = ProxmoxAPI(PROXHOST, user=user, password=pwd, verify_ssl=False)
+    
 hostname=socket.gethostname()
 newhost=hostname
 
-a = pyproxmox.prox_auth(PROXHOST, USER, PWD,False)
+a = pyproxmox.prox_auth(PROXHOST, user, pwd,False)
 p = pyproxmox.pyproxmox(a)
 
 mymacs = getmacs()
