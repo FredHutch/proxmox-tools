@@ -28,7 +28,8 @@ def getScriptPath():
 try:
     user, pwd = open(getScriptPath()+'/creds').readline().strip().split("|")
 except:
-    print('Could not find creds file. Exiting.')
+    print('Could not open creds file %s.' % getScriptPath()+'/creds')
+    print('Format of creds file: username@DOMAIN|password (all in one line)')
     sys.exit()
 
 #proxmox = ProxmoxAPI(PROXHOST, user=user, password=pwd, verify_ssl=False)
