@@ -58,6 +58,8 @@ if newhost != hostname:
     f.write(newhost+'\n')
     f.close()
     os.system('hostname %s' % newhost)
+    os.system('dhclient -r')
+    os.system('dhclient')
     print ('changed hostname to %s' % newhost)
 else:
     print ('hostname for this MAC is in line with proxmox db')
