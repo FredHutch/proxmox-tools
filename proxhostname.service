@@ -1,0 +1,17 @@
+[Unit]
+Description=Set Proxmox VM hostname
+After=syslog.target network.target
+
+[Service]
+#User=<service username>
+#Group=<service group>
+
+Type=simple
+ExecStart=/root/bin/proxhostname.py > /root/bin/out.txt 2>&1
+TimeoutStopSec=20
+KillMode=process
+#Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+
