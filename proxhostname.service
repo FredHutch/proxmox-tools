@@ -7,7 +7,7 @@ After=syslog.target network.target
 #Group=<service group>
 
 Type=simple
-ExecStart=/root/bin/proxhostname.py > /root/bin/out.txt 2>&1
+ExecStart=/root/bin/proxhostname.py
 TimeoutStopSec=20
 KillMode=process
 #Restart=on-failure
