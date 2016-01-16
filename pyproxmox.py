@@ -125,6 +125,10 @@ class pyproxmox:
         data = self.connect('get','cluster/nextid',None)
         return data
 
+    def getPools(self):
+        """Get list of pools. Returns JSON"""
+        data = self.connect('get','pools',None)
+        return data
 
     # Node Methods
     def getNodeNetworks(self,node):
