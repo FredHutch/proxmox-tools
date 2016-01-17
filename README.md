@@ -54,13 +54,16 @@ enter template: [templ1404,win7template,templ1604,templcoreh0]:templ1604
 
 enter the hostname(s) you want to deploy (separated by space, no domain name)
 enter hostname(s):testvm1 testvm2 testvm3
+
 creating host testvm1 with VM ID 101 in pool scicomp
     ...UPID:euler:000F1637:680EBD3C:569BCC9A:qmclone:140:user1@FHCRC.ORG:
 creating host testvm2 with VM ID 115 in pool scicomp
     ...UPID:euler:000F163C:680EBD46:569BCC9A:qmclone:140:user1@FHCRC.ORG:
 creating host testvm3 with VM ID 116 in pool scicomp
     ...UPID:euler:000F1641:680EBD51:569BCC9A:qmclone:140:user1@FHCRC.ORG:
+
 Do you want to start these VMs now? (Y/n) y
+
 Starting VM 101 ..
     ...UPID:euler:000F1713:680EC7AE:569BCCB5:qmstart:101:user1@FHCRC.ORG:
 Starting VM 115 ..
