@@ -2,11 +2,13 @@
 
 # setting the proxmox VM hostname according to proxmox config
 
-import sys, os, json, fileinput, socket, pyproxmox
+import sys, os, json, fileinput, socket, warnings
 #from proxmoxer import ProxmoxAPI
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore",category=DeprecationWarning)
+    import pyproxmox
 
 PROXHOST='proxmox.fhcrc.org'
-NODES=['euler', 'lagrange']
 
 def getmac(interface):
     try:
@@ -42,7 +44,12 @@ p = pyproxmox.pyproxmox(a)
 
 mymacs = getmacs()
 
-for node in NODES:
+nodes = []
+nodelist=p.getNodes()['data']
+for n in nodelist:
+    nodes.append(n['node'])
+
+for node in nodes:
     vms = p.getNodeVirtualIndex(node)['data']
     for v in vms:
         j = p.getVirtualConfig(node,v['vmid'])
@@ -70,4 +77,4 @@ if newhost != hostname:
     os.system('dhclient')
     print ('changed hostname to %s' % newhost)
 else:
-    print ('hostname for this MAC is in line with proxmox db')
+    print ('hostname for this MAC is in line with proxmox db or MAC not found in proxmox.')
