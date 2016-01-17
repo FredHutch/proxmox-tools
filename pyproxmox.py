@@ -130,6 +130,11 @@ class pyproxmox:
         data = self.connect('get','pools',None)
         return data
 
+    def getNodes(self):
+        """Get list of pools. Returns JSON"""
+        data = self.connect('get','nodes',None)
+        return data
+
     # Node Methods
     def getNodeNetworks(self,node):
         """List available networks. Returns JSON"""
