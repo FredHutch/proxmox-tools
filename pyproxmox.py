@@ -22,8 +22,7 @@ status = b.getClusterStatus('vnode01')
 
 For more information see https://github.com/Daemonthread/pyproxmox.
 """
-import json
-import requests
+import json, requests
 
 # Authentication class
 class prox_auth:
@@ -46,9 +45,14 @@ class prox_auth:
         self.response = requests.post(self.full_url,verify=verifycert,data=self.connect_data)
     
         self.returned_data = self.response.json()
-        
-        self.ticket = {'PVEAuthCookie':self.returned_data['data']['ticket']}
-        self.CSRF = self.returned_data['data']['CSRFPreventionToken']
+        #if self.returned_data['data'] == None:
+        try:
+            self.ticket = {'PVEAuthCookie':self.returned_data['data']['ticket']}
+            self.CSRF = self.returned_data['data']['CSRFPreventionToken']
+        except:
+            self.ticket = None
+            self.CSRF = None
+            
 
 # The meat and veg class
 class pyproxmox:
@@ -72,33 +76,39 @@ class pyproxmox:
         """
         self.full_url = "https://%s:8006/api2/json/%s" % (self.url,option)
     
-        httpheaders = {'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'}
+        httpheaders = {'Accept':'application/json'}  # disabled   ,'Content-Type':'application/x-www-form-urlencoded'
 
         if conn_type == "post":
             httpheaders['CSRFPreventionToken'] = str(self.CSRF)
-            self.response = requests.post(self.full_url, verify=False, 
+            self.response = requests.post(self.full_url, verify=True, 
                                           data = post_data, 
                                           cookies = self.ticket,
                                           headers = httpheaders)
 
         elif conn_type == "put":
             httpheaders['CSRFPreventionToken'] = str(self.CSRF)
-            self.response = requests.put(self.full_url, verify=False, 
+            self.response = requests.put(self.full_url, verify=True, 
                                           data = post_data, 
                                           cookies = self.ticket,
                                           headers = httpheaders)
+
         elif conn_type == "delete":
             httpheaders['CSRFPreventionToken'] = str(self.CSRF)
-            self.response = requests.delete(self.full_url, verify=False, 
+            self.response = requests.delete(self.full_url, verify=True, 
                                           data = post_data, 
                                           cookies = self.ticket,
                                           headers = httpheaders)
         elif conn_type == "get":
-            self.response = requests.get (self.full_url, verify=False, 
+            self.response = requests.get (self.full_url, verify=True, 
                                           cookies = self.ticket)
 
         try:
             self.returned_data = self.response.json()
+            if self.response.status_code != requests.codes.ok:                   
+                if self.returned_data['data'] == None:
+                    self.returned_data['data'] = self.response.status_code
+            elif self.returned_data['data'] == None:
+                self.returned_data['data'] = 0                   
             return self.returned_data
         except:
             print("Error in trying to process JSON")
@@ -112,7 +122,7 @@ class pyproxmox:
     # Cluster Methods
     def getClusterStatus(self):
         """Get cluster status information. Returns JSON"""
-        data = self.connect('get','cluster/status',None)
+        data = self.connect('get','cluster/status', None)
         return data
 
     def getClusterBackupSchedule(self):
@@ -131,9 +141,12 @@ class pyproxmox:
         return data
 
     def getNodes(self):
-        """Get list of pools. Returns JSON"""
+        """Get list of nodes. Returns JSON"""
         data = self.connect('get','nodes',None)
         return data
+
+    # Access Methods (user / groups)
+
 
     # Node Methods
     def getNodeNetworks(self,node):
@@ -147,8 +160,8 @@ class pyproxmox:
         return data
 
     def getNodeContainerIndex(self,node):
-        """OpenVZ container index (per node). Returns JSON"""
-        data = self.connect('get','nodes/%s/openvz' % (node),None)
+        """LXC container index (per node). Returns JSON"""
+        data = self.connect('get','nodes/%s/lxc' % (node),None)
         return data
 
     def getNodeVirtualIndex(self,node):
@@ -248,44 +261,49 @@ class pyproxmox:
         data = self.connect('get','nodes/%s/scan/usb' % (node),None)
         return data
 
-
+    # LXC Methods
     
-    # OpenVZ Methods
+    def getContainers(self,node):
+        """Directory index. Returns JSON"""
+        data = self.connect('get','nodes/%s/lxc' % node,None)
+        return data
 
     def getContainerIndex(self,node,vmid):
         """Directory index. Returns JSON"""
-        data = self.connect('get','nodes/%s/openvz/%s' % (node,vmid),None)
+        data = self.connect('get','nodes/%s/lxc/%s' % (node,vmid),None)
         return data
 
     def getContainerStatus(self,node,vmid):
         """Get virtual machine status. Returns JSON"""
-        data = self.connect('get','nodes/%s/openvz/%s/status/current' % (node,vmid),None)
+        data = self.connect('get','nodes/%s/lxc/%s/status/current' % (node,vmid),None)
         return data
 
     def getContainerBeans(self,node,vmid):
         """Get container user_beancounters. Returns JSON"""
-        data = self.connect('get','nodes/%s/openvz/%s/status/ubc' % (node,vmid),None)
+        data = self.connect('get','nodes/%s/lxc/%s/status/ubc' % (node,vmid),None)
         return data
 
     def getContainerConfig(self,node,vmid):
         """Get container configuration. Returns JSON"""
-        data = self.connect('get','nodes/%s/openvz/%s/config' % (node,vmid),None)
+        data = self.connect('get','nodes/%s/lxc/%s/config' % (node,vmid),None)
         return data
 
     def getContainerInitLog(self,node,vmid):
         """Read init log. Returns JSON"""
-        data = self.connect('get','nodes/%s/openvz/%s/initlog' % (node,vmid),None)
+        data = self.connect('get','nodes/%s/lxc/%s/initlog' % (node,vmid),None)
         return data
 
     def getContainerRRD(self,node,vmid):
         """Read VM RRD statistics. Returns PNG"""
-        data = self.connect('get','nodes/%s/openvz/%s/rrd' % (node,vmid),None)
+        data = self.connect('get','nodes/%s/lxc/%s/rrd' % (node,vmid),None)
         return data
 
     def getContainerRRDData(self,node,vmid):
         """Read VM RRD statistics. Returns RRD"""
-        data = self.connect('get','nodes/%s/openvz/%s/rrddata' % (node,vmid),None)
+        data = self.connect('get','nodes/%s/lxc/%s/rrddata' % (node,vmid),None)
         return data
+
+    
 
     # KVM Methods
 
@@ -344,52 +362,83 @@ class pyproxmox:
     """
     Methods using the POST protocol to communicate with the Proxmox API. 
     """
+
+    # Access Methods (user / groups)
+
+    def createUser(self,post_data):
+        """
+        Create a User, Returns JSON, Requires a dictionary of key value pairs:
+        post_data = {'userid': a, 'comment': b, 'email': c, 
+                     'firstname': d, 'lastname': e, 'groups': f}
+        """
+        data = self.connect('post','access/users', post_data)
+        return data
+
+    def createGroup(self,post_data):
+        """
+        Create a Group, Returns JSON, Requires a dictionary of key value pairs:
+        post_data = {'groupid': a, 'comment': b}
+        """
+        data = self.connect('post','access/groups', post_data)
+        return data
+        
+    # Pools
+
+    def createPool(self,post_data):
+        """
+        Create a Group, Returns JSON, Requires a dictionary of key value pairs:
+        post_data = {'poolid': a, 'comment': b}
+        """
+        data = self.connect('post','pools', post_data)
+        return data
+
+
+    # LXC Methods
     
-    # OpenVZ Methods
-    
-    def createOpenvzContainer(self,node,post_data):
+    def createLXCContainer(self,node,post_data):
         """
         Create or restore a container. Returns JSON
         Requires a dictionary of tuples formatted [('postname1','data'),('postname2','data')]
         """
-        data = self.connect('post','nodes/%s/openvz' % (node), post_data)
+        data = self.connect('post','nodes/%s/lxc' % node, post_data)
         return data
 
-    def mountOpenvzPrivate(self,node,vmid):
+    def mountLXCPrivate(self,node,vmid):
         """Mounts container private area. Returns JSON"""
         post_data = None
-        data = self.connect('post','nodes/%s/openvz/%s/status/mount' % (node,vmid), post_data)
+        data = self.connect('post','nodes/%s/lxc/%s/status/mount' % (node,vmid), post_data)
         return data
 
-    def shutdownOpenvzContainer(self,node,vmid):
+    def shutdownLXCContainer(self,node,vmid):
         """Shutdown the container. Returns JSON"""
         post_data = None
-        data = self.connect('post','nodes/%s/openvz/%s/status/shutdown' % (node,vmid), post_data)
+        data = self.connect('post','nodes/%s/lxc/%s/status/shutdown' % (node,vmid), post_data)
         return data
 
-    def startOpenvzContainer(self,node,vmid):
+    def startLXCContainer(self,node,vmid):
         """Start the container. Returns JSON"""
         post_data = None
-        data = self.connect('post','nodes/%s/openvz/%s/status/start' % (node,vmid), post_data)
+        data = self.connect('post','nodes/%s/lxc/%s/status/start' % (node,vmid), post_data)
         return data
 
-    def stopOpenvzContainer(self,node,vmid):
+    def stopLXCContainer(self,node,vmid):
         """Stop the container. Returns JSON"""
         post_data = None
-        data = self.connect('post','nodes/%s/openvz/%s/status/stop' % (node,vmid), post_data)
+        data = self.connect('post','nodes/%s/lxc/%s/status/stop' % (node,vmid), post_data)
         return data
 
-    def unmountOpenvzPrivate(self,node,vmid):
+    def unmountLXCPrivate(self,node,vmid):
         """Unmounts container private area. Returns JSON"""
         post_data = None
-        data = self.connect('post','nodes/%s/openvz/%s/status/unmount' % (node,vmid), post_data)
+        data = self.connect('post','nodes/%s/lxc/%s/status/unmount' % (node,vmid), post_data)
         return data
 
-    def migrateOpenvzContainer(self,node,vmid,target):
+    def migrateLXCContainer(self,node,vmid,target):
         """Migrate the container to another node. Creates a new migration task. Returns JSON"""
         post_data = {'target': str(target)}
-        data = self.connect('post','nodes/%s/openvz/%s/migrate' % (node,vmid), post_data)
+        data = self.connect('post','nodes/%s/lxc/%s/migrate' % (node,vmid), post_data)
         return data
+
 
     # KVM Methods
 
@@ -483,12 +532,12 @@ class pyproxmox:
     """
     Methods using the DELETE protocol to communicate with the Proxmox API. 
     """
+
+    # LXC
     
-    # OPENVZ
-    
-    def deleteOpenvzContainer(self,node,vmid):
-        """Deletes the specified openvz container"""
-        data = self.connect('delete',"nodes/%s/openvz/%s" % (node,vmid),None)
+    def deleteLXCContainer(self,node,vmid):
+        """Deletes the specified lxc container"""
+        data = self.connect('delete',"nodes/%s/lxc/%s" % (node,vmid),None)
         return data
 
     # NODE
@@ -545,10 +594,10 @@ class pyproxmox:
         data = self.connect('put',"nodes/%s/time" % (node), post_data)
         return data
 
-    # OPENVZ
-    def setOpenvzContainerOptions(self,node,vmid,post_data):
-        """Set openvz virtual machine options."""
-        data = self.connect('put',"nodes/%s/openvz/%s/config" % (node,vmid), post_data)
+    # LXC
+    def setLXCContainerOptions(self,node,vmid,post_data):
+        """Set lxc virtual machine options."""
+        data = self.connect('put',"nodes/%s/lxc/%s/config" % (node,vmid), post_data)
         return data
     
     # KVM

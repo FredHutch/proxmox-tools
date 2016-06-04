@@ -4,7 +4,7 @@
 #  deploy proxmox VMs from templates
 
 import sys, os, subprocess, re, platform, getpass, argparse, logging
-import time, warnings, easygui, random, json, requests
+import time, warnings, easygui, random, json, requests, re
 
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -16,13 +16,11 @@ __app__ = "Proxmox command line deployment tool"
 __version__ = '0.9'
 PROXHOST = 'proxa3.fhcrc.org'
 REALM = 'FHCRC.ORG'
+# REALM = 'pam'
 MAILDOM = 'fredhutch.org'
-#REALM = 'pam'
 LXCTEMPLATE = 'proxnfs:vztmpl/ubuntu-16.04-standard_16.04-1_amd64.tar.gz'
 STORLOC = 'proxazfs'
 STORNET = 'proxnfs'
-
-uselxc = True
 
 homedir = os.path.expanduser("~")
 cfgdir = os.path.join(homedir, '.proxmox')
@@ -31,39 +29,37 @@ j = requests.get('https://toolbox.fhcrc.org/json/sc_users.json').json()
 
 def main():
 
+    uselxc = True
+    usegui = True
+    
+    if args.command == 'assist':
+        if 'DISPLAY' in os.environ.keys() or sys.platform == 'win32':
+            usegui = True
+    
     if args.debug:
-        print('Debugging ....')
+        print('Debugging ....')                                                  
         print(args, l)
 
     if args.command in ['straaange', 'oppptions']:
-        print("This feature is not yet implemented.")
+        prn("This feature is not yet implemented.", usegui)
         return False
 
-    if args.command == '':
-        print("use one of these sub commands: prox new, prox list,"
-              "prox start, prox stop, prox destroy")
-        return False
-
-    #print ('Executing command "prox %s"' % args.command)
-
+    # getting login and password 
     user = getpass.getuser()
-    # user='root'
+    #user='root'
+    #pwd=''
     pwd = os.getenv('proxpw', '')
     if pwd == '':
         pwd = os.getenv('PROXPW', '')
         if pwd == '':
-            if args.command == 'assist' and 'DISPLAY' in os.environ.keys():
-                pwd = easygui.passwordbox("Password for '%s':" % user, __app__)
-            else:
-                pwd = getpass.getpass("Password for '%s':" % user)
+            pwd = getpwd("Password for '%s':" % user, usegui)
             if pwd == '':
-                print('Password is required')
                 return False
     loginname = user + '@' + REALM
 
     a = pyproxmox.prox_auth(PROXHOST, loginname, pwd, True)
     if a.ticket is None:
-        print('Could not get an authentication ticket. Wrong password?')
+        prn('Could not get an authentication ticket. Wrong password?', usegui)
         return False
     p = pyproxmox.pyproxmox(a)
 
@@ -97,7 +93,7 @@ def main():
     # list of machine ids we want to take action on
     vmids = getvmids(ourmachines, args.hosts)
     if args.vmid != '':
-        vmids.append(args.vmid)
+        vmids.append(int(args.vmid))
 
     print('')
     
@@ -106,35 +102,76 @@ def main():
             'start',
             'stop',
             'destroy'] and not vmids):
-        print(' {0: <5} {1: <15} {2: <5} {3: <9} {4: <8}'.format(
+        prn(' {0: <5} {1: <15} {2: <5} {3: <9} {4: <8}'.format(
             'vmid', 'name', 'type', 'status', 'node'))
-        print(' {0: <5} {1: <15} {2: <5} {3: <9} {4: <8}'.format(
+        prn(' {0: <5} {1: <15} {2: <5} {3: <9} {4: <8}'.format(
             '----', '--------------', '----', '--------', '-------'))
 
         for k, v in ourmachines.items():
-            print(' {0: <5} {1: <15} {2: <5} {3: <9} {4: <8}'.format(*v))
+            prn(' {0: <5} {1: <15} {2: <5} {3: <9} {4: <8}'.format(*v))
 
     # ******************************************************************
 
     if args.command == 'assist':
-        print('running "prox assist" command which will guide you '
-              'through a number of choices')
-        chce = []
-        if not 'DISPLAY' in os.environ.keys():
-            print('no DISPLAY variable set, cannot detect any GUI (e.g. X11)')
+        if not usegui:
+            print('running "prox assist" command which will guide you '
+              'through a number of choices, however no GUI is available')
             return False
+            
+        chce = []
+        msg = ("Running 'prox assist'! Please select from the list "
+               "below or 'Cancel' and run 'prox --help' for other options. "
+               "Example: 'prox new mybox1 mybox2 mybox3' will create "
+               "3 Linux machines.")
+        chce = easygui.choicebox(msg, __app__,['New linux machine', 
+        'New docker host', 'New virtual machine', 'List machines', 
+        'Start machine', 'Stop machine', 'Modify machine', 
+        'Destroy machine'])
+        
+        if not chce:
+            return False
+        
+        if chce.startswith('New '):
+            args.command = 'new'
+            if chce != "New linux machine":
+                uselxc = False
+            else:                    
+                msg = ("Please select the size of your machine. "
+                       "Memory sizes are in MB, unless you add G "
+                       "(e.g. 1G). Disk sizes are always in GB\n."
+                       "Please start small, you can always resize."
+                       )
+                title = "Configuring Machine Size"
+                fieldNames = ["Memory", "# Cores", "Disk Size"]
+                fieldValues = ['512M', '2', '4G']
+                fieldValues = easygui.multenterbox(msg, title,
+                        fieldNames, fieldValues)
+                args.mem, args.cores, args.disk = fieldValues
+                                    
+        elif chce.startswith('List '):
+            args.command = 'list'
+        elif chce.startswith('Start '):
+            args.command = 'start'                
+        elif chce.startswith('Stop '):
+            args.command = 'stop'
+        elif chce.startswith('Modify '):
+            args.command = 'modify'
+        elif chce.startswith('Destroy '):
+            args.command = 'destroy'                
         else:
-            msg = ("Running 'prox assist'! Please select from the list "
-                   "below or 'Cancel' and run 'prox --help' for other options. "
-                   "Example: 'prox new mybox1 mybox2 mybox3' will create "
-                   "3 Linux machines.")
-            chce = easygui.choicebox(msg, __app__,['new linux machine', 
-            'new dockerhost', 'new virtual machine', 'list machines', 
-            'start machine', 'stop machine', 'destroy machine'])
-
-        print('Choice:', chce)
-
-        sys.exit()
+            args.command = 'assist'
+                                    
+    # ******************************************************************
+    # setting some variables based on input from args.assist 
+    ## settings for LXC containers only    
+    
+    if "G" in args.mem.upper():
+        lxcmem = int(re.sub("[^0-9^.]", "", args.mem))*1024
+    else:
+        lxcmem = int(re.sub("[^0-9^.]", "", args.mem))
+    lxccores = int(re.sub("[^0-9^.]", "", args.cores))
+    lxcdisk = int(re.sub("[^0-9^.]", "", args.disk))
+    
     # ******************************************************************
 
     if args.command == 'start':
@@ -142,32 +179,31 @@ def main():
         if not vmids:
             vmids.append(input('\nenter vmid to start:'))
             if not vmids:
+                prn('vmid is required', usegui)
                 return False
 
         for vmid in vmids:
-            machine = ourmachines[int(vmid)]
+            machine = ourmachines[vmid]
             if machine[3] == 'running':
-                print('Machine "%s" is already running!' % machine[1])
+                prn('Machine "%s" is already running!' % machine[1], usegui)
                 return False
             if machine[2] == 'kvm':
                 ret = p.startVirtualMachine(machine[4], vmid)['data']
-                print(ret)
+                print('...%s' % ret)
                 for i in range(15):
                     time.sleep(1)
                     ret = p.getVirtualStatus(machine[4], vmid)['data']
-                    print(
-                        'Machine {0: <4}: {1}, cpu: {2:.0%} '.format(
+                    print('Machine {0: <4}: {1}, cpu: {2:.0%} '.format(
                             vmid, ret['status'], ret['cpu']))
                     if ret['cpu'] > 0.2:
                         break
             else:
                 ret = p.startLXCContainer(machine[4], vmid)['data']
-                print(ret)
+                print('...%s' % ret)
                 for i in range(15):
                     time.sleep(1)
                     ret = p.getContainerStatus(machine[4], vmid)['data']
-                    print(
-                        'Machine {0: <4}: {1}, cpu: {2:.0%} '.format(
+                    prn('Machine {0: <4}: {1}, cpu: {2:.0%} '.format(
                             vmid, ret['status'], ret['cpu']))
                     if ret['status'] == 'running':
                         break
@@ -180,23 +216,23 @@ def main():
         if not vmids:
             vmids.append(input('\nenter vmid to start:'))
             if not vmids:
-                print("no vmid entered")
+                prn("no vmid entered", usegui)
                 return False
         for vmid in vmids:
-            machine = ourmachines[int(vmid)]
+            machine = ourmachines[vmid]
             if machine[3] == 'stopped':
-                print('Machine "%s" is already stopped!' % machine[1])
+                prn('Machine "%s" is already stopped!' % machine[1], usegui)
                 continue
             if machine[2] == 'kvm':
                 ret = p.stopVirtualMachine(machine[4], vmid)['data']
                 if ret:
                     print(ret)
                 else:
-                    print("host with id %s not yet stopped!" % vmid)
+                    prn("host with id %s not yet stopped!" % vmid, usegui)
                 for i in range(15):
                     time.sleep(1)
                     ret = p.getVirtualStatus(machine[4], vmid)['data']
-                    print(
+                    prn(
                         'Machine {0: <4}: {1}, cpu: {2:.0%} '.format(
                             vmid, ret['status'], ret['cpu']))
                     if ret['status'] == 'stopped':
@@ -207,6 +243,51 @@ def main():
 
     # ******************************************************************
 
+    if args.command == 'modify':
+        if not vmids:
+            vmids.append(input('\nenter vmid to modify:'))
+            if not vmids:
+                prn("no vmid entered", usegui)
+                return False
+        for vmid in vmids:
+            machine = ourmachines[vmid]
+            if machine[2] == 'kvm':
+                #ret = p.stopVirtualMachine(machine[4], vmid)['data']
+                prn("currently cannot modify virtual machines.", usegui)
+            else:
+                #ret = p.stopLXCContainer(machine[4], vmid)['data']
+                ret = p.getContainerConfig(machine[4], vmid)['data']
+                rootstr=ret['rootfs']
+                post_data = {}
+                post_data['cpulimit'] = lxccores
+                post_data['memory'] = lxcmem
+                post_data['rootfs'] = re.sub(r",size=[0-9]+G", ",size=%sG" 
+                                                 % lxcdisk, rootstr)
+                #volume=proxazfs:subvol-126-disk-1,size=30G                            
+                ret = p.setLXCContainerOptions(machine[4], vmid, post_data)['data']
+                if iserr(ret,500):
+                    if machine[3] == 'running':          
+                        prn("Running machines can currently only be modified "
+                            "through the web interface.\nStop the machine "
+                            "and try again or use the web interface or "
+                            "ask a systems administrator to do this for you."
+                            , usegui                            
+                        )
+                    else:
+                        print ('Error 50X, could not modify machine')
+                else:
+                    if ret == 0:
+                        ret = p.getContainerConfig(machine[4], vmid)['data']
+                        print ('Machine reconfigured. New settings '
+                               'cores: %s, mem: %s MB, rootfs: %s ' 
+                               % (ret['cpulimit'], ret['memory'], 
+                                 ret['rootfs'])
+                                )                        
+                    else:
+                        print(ret)
+                
+    # ******************************************************************
+
     if args.command == 'destroy':
         if not vmids:
             vmids.append(input('\nenter vmid to start:'))
@@ -214,12 +295,12 @@ def main():
                 return False
         for vmid in vmids:
             if not int(vmid) in ourmachines:
-                print('machine with id %s does not exist' % vmid)
+                prn('machine with id %s does not exist' % vmid)
                 return False
-            machine = ourmachines[int(vmid)]
+            machine = ourmachines[vmid]
             if machine[3] != 'stopped':
                 print(
-                    'Machine "%s" needs to be stopped before it can be destroyed!' %
+                'Machine "%s" needs to be stopped before it can be destroyed!' %
                     machine[1])
                 return False
             if machine[2] == 'kvm':
@@ -238,20 +319,20 @@ def main():
 
         myhosts = args.hosts
         if len(myhosts) == 0:
-            print(
-                'enter the hostname(s) you want to deploy (separated by space, no domain name)')
-            myhosts = input('enter hostname(s):')
+            msg=("enter the hostname(s) you want to deploy (separated by "
+                  "space, no domain name")
+            myhosts = def_input(msg, usegui)
             myhosts = myhosts.split(' ')
 
         if not myhosts or myhosts == '':
-            print('hostname(s) are required')
+            prn('hostname(s) are required', usegui)
             return False
 
         desc = 'testing'
         if len(args.hosts) == 0:
-            print(
-                'What is the description/purpose of the system(s)? (e.g. testing, development, other?')
-            desc = def_input('Description:', 'testing')
+            msg=("What is the description/purpose of the system(s)? (e.g. "
+                 "testing, development, other")
+            desc = def_input(msg, 'testing', usegui)
 
         storage = STORLOC
         if len(args.hosts) == 0:
@@ -272,16 +353,17 @@ def main():
                         break
                     time.sleep(1)
 
-                print(
+                prn(
                     'creating host %s with ID %s in pool %s' %
                     (h, newcontid, pool))
-                notes = "owner: %s\ncontact: %s@%s\ndescription: testing\nsle: weekdays" % (
-                    pool, user, MAILDOM)
 
                 post_data = {
                     'ostemplate': LXCTEMPLATE,
+                    'cpulimit': lxccores,
+                    'memory': lxcmem,
+                    'rootfs': lxcdisk,
                     'vmid': newcontid,
-                    'description': notes,
+                    'description': build_notes(user, pool, desc),
                     'hostname': h,
                     'password': pwd,
                     'storage': storage,
@@ -311,13 +393,13 @@ def main():
                     for i in range(15):
                         time.sleep(1)
                         ret = p.getContainerStatus(mynode, n)['data']
-                        print(
+                        prn(
                             'Machine {0: <4}: {1}, cpu: {2:.0%} '.format(
                                 n, ret['status'], ret['cpu']))
                         if ret['status'] == 'running':
                             break
                     if not ret:
-                        print("Failed starting host id %s !" % n)
+                        prn("Failed starting host id %s !" % n)
                         return False
 
                 pingwait(myhosts[0])
@@ -327,28 +409,35 @@ def main():
 
             myimage = args.image
             if myimage == '':
-                if not 'DISPLAY' in os.environ.keys():
-                    print('Please enter a template name:')
+                if not usegui:
+                    msg="Please enter a template name"
+                    myimage = def_input(msg, ','.join(templlist))
                 else:
-                    print(
-                        'Please enter a template name or just hit enter to select from a list:')
-                myimage = def_input('enter template:', ','.join(templlist))
+                    msg=("Please enter a template name or just hit enter "
+                         "to select from a list:")
+                    myimage = easygui.choicebox(msg, __app__,
+                    ','.join(templlist))
 
-            if myimage == ','.join(
-                    templlist) and 'DISPLAY' in os.environ.keys():
+            if myimage == ','.join(templlist) and usegui:
                 myimage = easygui.choicebox(
                     'You must select a image or template name', __app__, templlist)
 
             if not myimage or myimage == ','.join(templlist) or myimage == '':
-                print('image is required')
+                prn('image is required')
                 return False
 
+            notes = build_notes(user, pool)
             for h in myhosts:
                 newvmid = p.getClusterVmNextId()['data']
-                print(
+                prn(
                     'creating host %s with VM ID %s in pool %s' %
                     (h, newvmid, pool))
-                post_data = [('newid', newvmid), ('name', h), ('pool', pool)]
+                post_data = {
+                    'newid': newvmid, 
+                    'name': h, 
+                    'description': notes,
+                    'pool': pool
+                    }
                 ret = p.cloneVirtualMachine(
                     hosttempl[myimage][0],
                     hosttempl[myimage][1],
@@ -365,17 +454,60 @@ def main():
 
                 pingwait(myhosts[0])
             else:
-                print('Please start the host with "prox start <hostname>"')
+                prn('Please start the host with "prox start <hostname>"', usegui)
                                 
     print('')
 
+
+def def_input(message, defaultVal, usegui=False):
+    if usegui:
+        if not defaultVal:
+            defaultVal = ''
+        return easygui.enterbox(message, __app__, defaultVal)
+    else:
+        if defaultVal:
+            return input("%s [%s]:" % (message, defaultVal)) or defaultVal
+        else:
+            return input("%s " % (message))
+
+def yn_choice(message, default='y', usegui=False):
+    if usegui:
+        return easygui.boolbox(message, __app__)
+    else:
+        choices = 'Y/n' if default.lower() in ('y', 'yes') else 'y/N'
+        choice = input("%s (%s) " % (message, choices))
+        values = ('y', 'yes', '') if default == 'y' else ('y', 'yes')
+        return choice.strip().lower() in values
+
+def prn(message, usegui=False):
+    if usegui:
+        pwd = easygui.msgbox(message,__app__)
+    else:
+        print(message)
+
+def getpwd(message, usegui=False):
+    pwd = ''
+    if usegui:
+        pwd = easygui.passwordbox(message, __app__)
+    else:
+        pwd = getpass.getpass(message)
+    if pwd == '':
+        print('Password is required')
+    return pwd
+
+def iserr(result, httperror=400):
+    """ checking return codes from REST API, if error data returns >400 """
+    if isinstance(result, int):
+        if result >= httperror:
+            return True
+    return False
 
 def getvmids(ourmachines, hostnames):
     ids = []
     for k, v in ourmachines.items():
         for h in hostnames:
             if v[1] == h:
-                ids.append(v[0])
+                ids.append(int(v[0]))
     return ids
 
 
@@ -392,8 +524,7 @@ def pingwait(hostname):
     if ret == 0:
         print('Host %s is up and running, you can now connect' % hostname)
 
-
-def build_notes(user, pool):
+def build_notes(user, pool, desc='testing'):
     # desc =
     # owner             : _adm/infosec
     # technical_contact : jli@fredhutch.org
@@ -402,17 +533,19 @@ def build_notes(user, pool):
     # sle               : business_hours=24x7 / grant_critical=no /
     #                     phi=no / pii=no / publicly_accessible=no
     # Tenancy           : default
-    mail=jsearchone(j,'user',user,'mail')
-    desc = (
-    "owner: %s" % pool
+    mail=jsearchone(j,'uid',user,'mail')
+    division=jsearchone(j,'uid',user,'division')
+    dept_manager=jsearchone(j,'uid',user,'dept_manager')
+    mgr_mail=jsearchone(j,'uid',dept_manager,'mail')
+    
+    notes = (
+    "owner: %s/%s\n" 
+    "technical_contact: %s\n"
+    "billing_contact: %s\n"
+    "description: %s\n"
+    "sle: business_hours=weekdays" % (division, pool, mail, mgr_mail, desc)
     )
-
-
-def def_input(message, defaultVal):
-    if defaultVal:
-        return input("%s [%s]:" % (message, defaultVal)) or defaultVal
-    else:
-        return input("%s " % (message))
+    return notes
 
 def jsearchone(json,sfld,search,rfld):
     """ return the first search result of a column based search """
@@ -426,14 +559,6 @@ def uniq(seq):
     for e in seq:
         keys[e] = 1
     return keys.keys()
-
-
-def yn_choice(message, default='y'):
-    choices = 'Y/n' if default.lower() in ('y', 'yes') else 'y/N'
-    choice = input("%s (%s) " % (message, choices))
-    values = ('y', 'yes', '') if default == 'y' else ('y', 'yes')
-    return choice.strip().lower() in values
-
 
 def ping(hostname, timeout):
     if platform.system() == "Windows":
@@ -589,8 +714,8 @@ def parse_arguments():
         description='a tool for deploying resources from proxmox ' + \
             '(LXC containers or VMs)')
     parser.add_argument( 'command', type=str, default='assist', nargs='?',
-        choices=['new','list','start','stop','destroy', 'assist'],
-        help="a command to be executed. (new, list, start , stop , destroy, assist")
+        choices=['new','list','start','stop', 'modify','destroy', 'assist'],
+        help="a command to be executed. (new, list, start , stop , modify, destroy, assist")
     parser.add_argument('hosts', action='store', default=[],  nargs='*',
         help='hostname(s) of VM/containers (separated by space), ' +
               '   example: prox new host1 host2 host3')
@@ -598,9 +723,17 @@ def parse_arguments():
         help='vmid, proxmox primary key for a container or vm')
     parser.add_argument('--image', '-i', dest='image', action='store', default='', 
         help='QEMU / KVM image we clone to create a new VM')
-    parser.add_argument( '--debug', '-d', dest='debug', action='store_true', default=False,
+    parser.add_argument('--mem', '-m', dest='mem', action='store', default='512',
+        help='Memory allocation for the machine, e.g. 4G or 512 Default: 512')
+    parser.add_argument('--cores', '-c', dest='cores', action='store', default='2', 
+        help='Number of cores to be allocated for the machine. Default: 2')       
+    parser.add_argument('--disk', '-d', dest='disk', action='store', default='4', 
+        help='disk storage allocated to the machine. Default: 4')       
+    parser.add_argument( '--storenet', '-n', dest='stornet', action='store_true', default=False,
+        help="use network storage (nfs, ceph) instead of local storage")
+    parser.add_argument( '--debug', '-g', dest='debug', action='store_true', default=False,
         help="verbose output for all commands")
-    parser.add_argument('--mailto', '-m', dest='mailto', action='store', default='', 
+    parser.add_argument('--mailto', '-e', dest='mailto', action='store', default='', 
         help='send to this email address to notify of a new deployment.')
 
     return parser.parse_args()
