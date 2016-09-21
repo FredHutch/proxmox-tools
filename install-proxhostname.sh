@@ -1,8 +1,9 @@
 #! /bin/bash
 
 #### prepare install for KVM ##### 
-
-apt-get install -y python3-pip vim mc chef software-properties-common qemu-guest-agent
+DEBIAN_FRONTEND=noninteractive apt-get install -y -q python3-pip vim mc software-properties-common qemu-guest-agent
+wget -P /tmp https://packages.chef.io/stable/ubuntu/12.04/chef_12.14.77-1_amd64.deb
+dpkg -i /tmp/chef_12.14.77-1_amd64.deb
 sed -e 's/^PermitRootLogin prohibit-password/PermitRootLogin yes/' -i /etc/ssh/sshd_config
 echo 'APT::Get::AllowUnauthenticated "true";' > ${BASEDIR}/etc/apt/apt.conf.d/99aptnokey
 mkdir -p /etc/chef
@@ -15,7 +16,6 @@ echo 'log_location "/var/log/chef/client.log"' >> ${BASEDIR}/etc/chef/client.rb
 mkdir -p /root/bin/
 cp proxhostname.py /root/bin/
 cp pyproxmox.py /root/bin
-cp creds /root/bin
 
 ubuntuver=$( lsb_release -r | awk '{ print $2 }' | sed 's/[.]//' )
 
@@ -26,9 +26,10 @@ else
   cp proxhostname.conf /etc/init/
 fi
 
-
 ### copy chef cert
 mkdir -p /root/.chef 
 scp root@proxa1:/root/.chef/cit-validator.pem /root/.chef/
 
+### copy proxmoxer creds file
+scp root@proxa1:/root/bin/creds /root/bin/
 
