@@ -599,6 +599,11 @@ class pyproxmox:
         """Set lxc virtual machine options."""
         data = self.connect('put',"nodes/%s/lxc/%s/config" % (node,vmid), post_data)
         return data
+        
+    def resizeLXCContainer(self,node,vmid,post_data):
+        """Set lxc virtual machine options."""
+        data = self.connect('put',"nodes/%s/lxc/%s/resize" % (node,vmid), post_data)
+        return data
     
     # KVM
     def setVirtualMachineOptions(self,node,vmid,post_data):
