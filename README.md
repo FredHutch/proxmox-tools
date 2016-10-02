@@ -1,4 +1,4 @@
-Promox helper scripts
+Proxmox helper scripts
 ==
 
 proxhostname.py
@@ -18,77 +18,104 @@ prox is a command line interface to rapidly deploy VMs on proxmox from a remote 
 prox supports a number of command line options:
 
 ```
-user1@rhino1:$ prox.py --help
-usage: prox  [-h] [--hosts [HOSTS [HOSTS ...]]] [--image IMAGE] [--debug]
-             [--mailto MAILTO]
-             [command]
+user@sphinx:~$ prox --help
+usage: prox  [-h] [--runlist RUNLIST] [--mem MEM] [--disk DISK]
+             [--cores CORES] [--storenet] [--vmid VMID] [--debug]
+             [{new,list,start,stop,modify,destroy,assist}] [hosts [hosts ...]]
 
 a tool for deploying resources from proxmox (LXC containers or VMs)
 
 positional arguments:
-  command               a command to be executed. (deploy, start, stop)
+  {new,list,start,stop,modify,destroy,assist}
+                        a command to be executed. (new, list, start , stop ,
+                        modify, destroy, assist
+  hosts                 hostname(s) of VM/containers (separated by space),
+                        example: prox new host1 host2 host3
 
 optional arguments:
   -h, --help            show this help message and exit
-  --hosts [HOSTS [HOSTS ...]], -n [HOSTS [HOSTS ...]]
-                        hostnames of your new VM/containers
-  --image IMAGE, -i IMAGE
-                        image we use to clone
-  --debug, -d           do not send an email but print the result to console
-  --mailto MAILTO, -m MAILTO
-                        send email address to notify of a new deployment.
-
+  --runlist RUNLIST, -r RUNLIST
+                        a local shell script file or a command to execute
+                        after install
+  --mem MEM, -m MEM     Memory allocation for the machine, e.g. 4G or 512
+                        Default: 512
+  --disk DISK, -d DISK  disk storage allocated to the machine. Default: 4
+  --cores CORES, -c CORES
+                        Number of cores to be allocated for the machine.
+                        Default: 2
+  --storenet, -n        use network storage (nfs, ceph) instead of local
+                        storage
+  --vmid VMID, -v VMID  vmid, proxmox primary key for a container or vm
+  --debug, -g           verbose output for all commands
 ```
 
-
-However if you want to use it interactivelty you can just invoke the command prox (or prox.py)
-
+let's say you want to deploy a new docker host named sausage:
 
 ```
-user1@rhino:$ prox.py 
-Executing command "prox deploy"
-Password for 'user1':
+user@rhino3:~$ prox --mem 1024 --disk 8 new sausage
+Password for 'user':
 
-Please enter a template name or just hit enter to select from a list:
-enter template: [templ1404,win7template,templ1604,templcoreh0]:templ1604 
+creating host sausage with ID 121 in pool SciComp
+    ...UPID:proxa3:00001F6C:00F2DBDE:57EE629A:vzcreate:121:user@FHCRC.ORG:
+Starting host 121 ..
+    ...UPID:proxa3:00001FB3:00F2E185:57EE62A8:vzstart:121:user@FHCRC.ORG:
+Machine 121 : running, cpu: 0% 
 
-enter the hostname(s) you want to deploy (separated by space, no domain name)
-enter hostname(s):testvm1 testvm2 testvm3
-
-creating host testvm1 with VM ID 101 in pool scicomp
-    ...UPID:euler:000F1637:680EBD3C:569BCC9A:qmclone:140:user1@FHCRC.ORG:
-creating host testvm2 with VM ID 115 in pool scicomp
-    ...UPID:euler:000F163C:680EBD46:569BCC9A:qmclone:140:user1@FHCRC.ORG:
-creating host testvm3 with VM ID 116 in pool scicomp
-    ...UPID:euler:000F1641:680EBD51:569BCC9A:qmclone:140:user1@FHCRC.ORG:
-
-Do you want to start these VMs now? (Y/n) y
-
-Starting VM 101 ..
-    ...UPID:euler:000F1713:680EC7AE:569BCCB5:qmstart:101:user1@FHCRC.ORG:
-Starting VM 115 ..
-    ...UPID:euler:000F171A:680EC7B4:569BCCB5:qmstart:115:user1@FHCRC.ORG:
-Starting VM 116 ..
-    ...UPID:euler:000F172F:680EC7BB:569BCCB5:qmstart:116:user1@FHCRC.ORG:
-
-waiting for host testvm1 to come up .. hit ctrl+c to stop ping
-ping: unknown host testvm1
-ping: unknown host testvm1
-ping: unknown host testvm1
-ping: unknown host testvm1
-PING testvm1.fhcrc.org (10.10.117.191) 56(84) bytes of data.
-64 bytes from testvm1.fhcrc.org (10.10.117.191): icmp_seq=1 ttl=63 time=3.98 ms
-64 bytes from testvm1.fhcrc.org (10.10.117.191): icmp_seq=2 ttl=63 time=0.211 ms
-64 bytes from testvm1.fhcrc.org (10.10.117.191): icmp_seq=3 ttl=63 time=0.235 ms
-64 bytes from testvm1.fhcrc.org (10.10.117.191): icmp_seq=4 ttl=63 time=0.194 ms
-64 bytes from testvm1.fhcrc.org (10.10.117.191): icmp_seq=5 ttl=63 time=0.214 ms
-64 bytes from testvm1.fhcrc.org (10.10.117.191): icmp_seq=6 ttl=63 time=0.137 ms
-64 bytes from testvm1.fhcrc.org (10.10.117.191): icmp_seq=7 ttl=63 time=0.164 ms
-64 bytes from testvm1.fhcrc.org (10.10.117.191): icmp_seq=8 ttl=63 time=0.174 ms
-
---- testvm1.fhcrc.org ping statistics ---
-8 packets transmitted, 8 received, 0% packet loss, time 6999ms
-rtt min/avg/max/mdev = 0.137/0.663/3.981/1.254 ms
-0
-Host testvm1 is up and running, you can now connect
+waiting for machine sausage to come up .. hit ctrl+c to stop ping
 ```
+
+now you can install docker manually. 
+As a next step let's assume you would like to install docker on multiple 
+machines. We can create a runlist in a simple text file and each command in 
+that list will be executed on each machine. In this case we made a runlist 
+that installs docker:
+
+```
+user@rhino3:~$ cat ~/runlist-docker 
+apt-get update
+apt-get install -y docker-engine
+```
+
+now we can use the prox command to install multiple machines:
+
+```
+user@rhino3:~$ prox --runlist ~/runlist-docker --disk 8 new sausage1 sausage2 sausage3
+Password for 'user':
+
+creating host sausage1 with ID 116 in pool SciComp
+    ...UPID:proxa3:000039A6:0111B96E:57EEB19E:vzcreate:116:user@FHCRC.ORG:
+creating host sausage2 with ID 118 in pool SciComp
+    ...UPID:proxa3:000039B6:0111B980:57EEB19E:vzcreate:118:user@FHCRC.ORG:
+creating host sausage3 with ID 121 in pool SciComp
+    ...UPID:proxa3:000039C4:0111B991:57EEB19E:vzcreate:121:user@FHCRC.ORG:
+Starting host 116 ..
+starting host 116, re-try 0
+    ...UPID:proxa3:00003A04:0111BCB7:57EEB1A6:vzstart:116:user@FHCRC.ORG:
+Machine 116 : running, cpu: 0% 
+Starting host 118 ..
+    ...UPID:proxa3:00003AF7:0111BD3C:57EEB1A8:vzstart:118:user@FHCRC.ORG:
+Machine 118 : running, cpu: 0% 
+Starting host 121 ..
+    ...UPID:proxa3:00003BE2:0111BDC2:57EEB1A9:vzstart:121:user@FHCRC.ORG:
+Machine 121 : running, cpu: -1% 
+```
+
+and after you are done with your work you can stop and then destroy these machines: 
+
+```
+user@rhino3:~$ prox stop sausage1 sausage2 sausage3
+Password for 'user':
+
+UPID:proxa2:000060FE:01121EA2:57EEB2A1:vzstop:116:user@FHCRC.ORG:
+UPID:proxa3:00006110:01121EB3:57EEB2A1:vzstop:118:user@FHCRC.ORG:
+UPID:proxa4:00006127:01121EC6:57EEB2A1:vzstop:121:user@FHCRC.ORG:
+
+user@rhino3:~$ 
+user@rhino3:~$ prox destroy sausage1 sausage2 sausage3
+Password for 'user':
+
+UPID:proxa2:000061C7:01122C18:57EEB2C4:vzdestroy:116:user@FHCRC.ORG:
+UPID:proxa3:000061CB:01122C2A:57EEB2C4:vzdestroy:118:user@FHCRC.ORG:
+UPID:proxa4:000061CF:01122C3B:57EEB2C4:vzdestroy:121:user@FHCRC.ORG:
+```
+
