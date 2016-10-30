@@ -4,7 +4,7 @@
 #  deploy proxmox VMs from templates
 
 import sys, os, subprocess, re, platform, getpass, argparse, logging
-import time, warnings, easygui, random, json, requests, re, paramiko
+import time, warnings, easygui, random, json, requests, paramiko, socket
 import functools
 
 with warnings.catch_warnings():
@@ -32,8 +32,14 @@ def main():
 
     uselxc = True
     usegui = False
+    user = getpass.getuser()
     
-    if args.command == 'assist':
+    if not args.subcommand:
+        print('usage: prox <command> [options] host1 host2 host3') 
+        print('       Please run "prox --help"')
+        return False
+    
+    if args.subcommand == 'assist':
         if 'DISPLAY' in os.environ.keys() or sys.platform == 'win32':
             usegui = True
     
@@ -41,12 +47,21 @@ def main():
         print('Debugging ....')                                                  
         print(args, l)
 
-    if args.command in ['straaange', 'oppptions']:
+    if args.subcommand in ['straaange', 'oppptions']:
         prn("This feature is not yet implemented.", usegui)
         return False
 
+    # check/create ssh keys & agent
+    check_ssh_agent()
+    check_ssh_auth(user)    
+    # ******************************************************************
+    if args.subcommand == 'ssh':      
+        ret = subprocess.run("ssh -i %s/.ssh/id_rsa_prox root@%s"
+                 % (homedir, 'nana50'), shell=True)    
+    # ******************************************************************                
+
     # getting login and password 
-    user = getpass.getuser()
+   
     #user='root'
     pwd = os.getenv('proxpw', '')
     #pwd=''    
@@ -60,9 +75,13 @@ def main():
     
     #### TESTING ###############
     #ssh_exec(user, pwd, commands=['ls -l', 'pwd', 'ps'], 'rhino1')
+    #runlist_exec(pwd, 'boner3')
+    #return False
+    
     
     ###### END TESTING ##############
-
+    
+    
     a = pyproxmox.prox_auth(PROXHOST, loginname, pwd, True)
     if a.ticket is None:
         prn('Could not get an authentication ticket. Wrong password?', usegui)
@@ -80,45 +99,53 @@ def main():
         node = n['node']
         nodes.append(node)
         # get list of containers and VMs
-        conts = p.getContainers(node)['data']
-        vms = p.getNodeVirtualIndex(node)['data']
-        for c in conts:
+        conts = p.getContainers(node)['data']            
+        for c in conts:            
+            descr = ''
+            if args.subcommand in ['list', 'ls', 'show']:
+                if args.contacts:
+                    descr = parse_contact(p,node,c['vmid'])                    
             ourmachines[int(c['vmid'])] = [c['vmid'], c[
-                'name'], c['type'], c['status'], node]
-        for v in vms:
-            # get VM templates
-            # if v['name'].startswith('templ') or
-            # v['name'].endswith('template'): # check for vm names
-            if v['template'] == 1:
-                hosttempl[v['name']] = [node, v['vmid']]
-                templlist.append(v['name'])
-            else:
-                ourmachines[int(v['vmid'])] = [v['vmid'], v[
-                    'name'], 'kvm', v['status'], node]
+                'name'], c['type'], c['status'], node, int(c['maxmem'])/
+                1024/1024/1024, c['cpus'], int(c['maxdisk'])/1024/1024/1024, 
+                descr]
+        if args.subcommand in ['list', 'ls', 'show']:
+            if args.all == True:
+                vms = p.getNodeVirtualIndex(node)['data']
+                for v in vms:
+                    # get VM templates
+                    # if v['name'].startswith('templ') or
+                    # v['name'].endswith('template'): # check for vm names
+                    if v['template'] == 1:
+                        hosttempl[v['name']] = [node, v['vmid']]
+                        templlist.append(v['name'])
+                    else:
+                        ourmachines[int(v['vmid'])] = [v['vmid'], v[
+                            'name'], 'kvm', v['status'], node, '', '', '', '']
 
     # list of machine ids we want to take action on
-    vmids = getvmids(ourmachines, args.hosts)
-    if args.vmid != '':
-        vmids.append(int(args.vmid))
+    vmids = None
+    if not args.subcommand in ['list', 'ls', 'show']:         
+        vmids = getvmids(ourmachines, args.hosts)
 
     print('')
-    
-    if args.command == 'list' or (
-        args.command in [
+        
+    if args.subcommand in ['list', 'ls', 'show'] or (
+        args.subcommand in [
             'start',
             'stop',
-            'destroy'] and not vmids):
-        prn(' {0: <5} {1: <15} {2: <5} {3: <9} {4: <8}'.format(
-            'vmid', 'name', 'type', 'status', 'node'))
-        prn(' {0: <5} {1: <15} {2: <5} {3: <9} {4: <8}'.format(
-            '----', '--------------', '----', '--------', '-------'))
+            'destroy'] and not vmids):                
+        prn(' {0: <5} {1: <20} {2: <5} {3: <9} {4: <8} {5: <5} {6: <3} {7: <5} {8: <10}'.format(
+            'vmid', 'name', 'type', 'status', 'node' , 'mem', 'cpu', 'disk', ''))
+        prn(' {0: <5} {1: <20} {2: <5} {3: <9} {4: <8} {5: <5} {6: <3} {7: <5} {8: <10}'.format(
+            '----', '--------------------', '----', '--------', '-------', '-----', '---', '-----', ''))
 
         for k, v in sorted(ourmachines.items()):
-            prn(' {0: <5} {1: <15} {2: <5} {3: <9} {4: <8}'.format(*v))
-
+            prn(' {0: <5} {1: <20} {2: <5} {3: <9} {4: <8} {5: <5} {6: <3} {7: <5} {8: <10}'.format(*v))
+        
     # ******************************************************************
 
-    if args.command == 'assist':
+    if args.subcommand == 'assist':
         if not usegui:
             print('running "prox assist" command which will guide you '
               'through a number of choices, however no GUI is available')
@@ -138,7 +165,7 @@ def main():
             return False
         
         if chce.startswith('New '):
-            args.command = 'new'
+            args.subcommand = 'new'
             if chce != "New linux machine":
                 uselxc = False
             else:                    
@@ -158,32 +185,32 @@ def main():
                     return False
                                     
         elif chce.startswith('List '):
-            args.command = 'list'
+            args.subcommand = 'list'
         elif chce.startswith('Start '):
-            args.command = 'start'                
+            args.subcommand = 'start'                
         elif chce.startswith('Stop '):
-            args.command = 'stop'
+            args.subcommand = 'stop'
         elif chce.startswith('Modify '):
-            args.command = 'modify'
+            args.subcommand = 'modify'
         elif chce.startswith('Destroy '):
-            args.command = 'destroy'                
+            args.subcommand = 'destroy'                
         else:
-            args.command = 'assist'
+            args.subcommand = 'assist'
                                     
-    # ******************************************************************
-    # setting some variables based on input from args.assist 
-    ## settings for LXC containers only    
-    
-    if "G" in args.mem.upper():
-        lxcmem = int(re.sub("[^0-9^.]", "", args.mem))*1024
-    else:
-        lxcmem = int(re.sub("[^0-9^.]", "", args.mem))
-    lxccores = int(re.sub("[^0-9^.]", "", args.cores))
-    lxcdisk = int(re.sub("[^0-9^.]", "", args.disk))
-    
+
+    # *********************************************************
+    # setting some variables for LXC containers only    
+    if args.subcommand in ['new', 'modify', 'assist']:    
+        if "G" in args.mem.upper():
+            lxcmem = int(re.sub("[^0-9^.]", "", args.mem))*1024
+        else:
+            lxcmem = int(re.sub("[^0-9^.]", "", args.mem))
+        lxccores = int(re.sub("[^0-9^.]", "", args.cores))
+        lxcdisk = int(re.sub("[^0-9^.]", "", args.disk))    
+            
     # ******************************************************************
 
-    if args.command == 'start':
+    if args.subcommand == 'start':
 
         if not vmids:
             vmids.append(input('\nenter vmid to start:'))
@@ -197,7 +224,7 @@ def main():
 
     # ******************************************************************
 
-    if args.command == 'stop':
+    if args.subcommand == 'stop':
         if not vmids:
             vmids.append(input('\nnot found, enter vmid to stop:'))
             if vmids[-1] == '':
@@ -228,7 +255,7 @@ def main():
 
     # ******************************************************************
 
-    if args.command == 'modify':
+    if args.subcommand == 'modify':
         if not vmids:
             vmids.append(input('\nnot found, enter vmid to modify:'))
             if vmids[-1] == '':
@@ -274,7 +301,7 @@ def main():
                 
     # ******************************************************************
 
-    if args.command == 'destroy':
+    if args.subcommand == 'destroy':
         if not vmids:
             vmids.append(input('\nnot found, enter vmid to destroy:'))
             if vmids[-1] == '':
@@ -288,17 +315,25 @@ def main():
                 print(
                 'Machine "%s" needs to be stopped before it can be destroyed!' %
                     machine[1])
-                return False
+                continue
             if machine[2] == 'kvm':
                 ret = p.deleteVirtualMachine(machine[4], vmid)['data']
                 print(ret)
             else:
                 ret = p.deleteLXCContainer(machine[4], vmid)['data']
                 print(ret)
-
+                
+            hip = '127.0.0.1'
+            try:
+                hip = socket.gethostbyname(machine[1])
+            except:
+                pass                
+            ret = subprocess.run("ssh-keygen -R %s,%s > /dev/null 2>&1" 
+                 % (machine[1], hip), shell=True)                
+                 
     # ******************************************************************
 
-    if args.command == 'new':
+    if args.subcommand == 'new':
 
         myhosts = args.hosts
         if len(myhosts) == 0:
@@ -341,7 +376,6 @@ def main():
                     if oldcontid != newcontid:
                         break
                     time.sleep(1)
-
                 prn(
                     'creating host %s with ID %s in pool %s' %
                     (h, newcontid, pool))
@@ -365,32 +399,76 @@ def main():
                 newhostids.append(int(newcontid))
                 ourmachines[int(newcontid)] = [newcontid, h, 'lxc', 
                             'stopped', mynode]
-
+                
             #if yn_choice("Do you want to start the machine(s) now?"):
-            start_machines(p, ourmachines, newhostids, usegui=False)
-                            
-            #if yn_choice("Do you want to install the Hutch base config?"):
-                #print ('bootstrapping chef-client ... please wait a few minutes ... !!!')
-                #cmdlist = ['dpkg -i /opt/chef/tmp/chef_amd64.deb',
-                    #'chef-client --environment scicomp-env-compute --validation_key /root/.chef/cit-validator.pem --runlist role[cit-base]']
-                    ##'chef-client --environment scicomp-env-compute --validation_key /root/.chef/cit-validator.pem --runlist role[cit-base],role[scicomp-base]']
-                #ssh_exec('root', pwd, cmdlist, h)
-            #else:
-                #pingwait(myhosts[-1],1)
-                    
+            start_machines(p, ourmachines, newhostids, usegui=False)                        
+                
             pingwait(myhosts[-1],1)
+                        
+            # basic bootstrapping 
+            idrsapub = ''
+            if os.path.exists('%s/.ssh/id_rsa_prox.pub' % homedir):
+                idrsapub = '%s/.ssh/id_rsa_prox.pub' % homedir            
+            for h in myhosts:
+                # placing ssh public keys on each machine    
+                if idrsapub != '':
+                    ssh_exec('root', pwd, ['mkdir -p .ssh',], h)
+                    sftp_put('root', pwd, idrsapub, '.ssh/id_rsa_prox.pub', h)
+                    ssh_exec('root', pwd, ['cat .ssh/id_rsa_prox.pub >> .ssh/authorized_keys',], h)
+                # create homedirs at login time
+                ssh_exec('root', pwd, ['echo "session required pam_mkhomedir.so skel=/etc/skel/ umask=0022" >> /etc/pam.d/common-account',], h)
+                # add my user to /etc/sudoers.d, use a zz_ prefix to overwrite previous settings
+                ssh_exec('root', pwd, ['echo "%s ALL=(ALL:ALL) NOPASSWD:ALL" > /etc/sudoers.d/zz_%s'
+                    % (user, user), 'chmod 440 /etc/sudoers.d/%s' % user], h)
+                # remove some packages 
+                #ssh_exec('root', pwd, ['apt-get remove -y apache2', 'apt-get autoremove'], h)
+                                
+                # clean out old host keys
+                hip = '127.0.0.1'
+                try:
+                    hip = socket.gethostbyname(h)            
+                except:
+                    pass
+                ret = subprocess.run("ssh-keygen -R %s,%s > /dev/null 2>&1" 
+                 % (h, hip), shell=True)
+                
+                # add the host keys to my local known_hosts
+                ret = subprocess.run("ssh-keyscan -t rsa %s >> %s/.ssh/known_hosts 2>/dev/null" 
+                 % (h, homedir), shell=True)
+            
+            # potentially running chef knife
+            loginuser='root@'
+            dobootstrap = False
+            if args.bootstrap:
+                dobootstrap = True
+            elif args.nobootstrap:
+                dobootstrap = False
+            else:
+                if yn_choice("\nDo you want to install the SciComp base config (e.g. user login) ?"):
+                    dobootstrap = True
+            if dobootstrap:                    
+                loginuser=''
+                ret = easy_par(run_chef_knife, myhosts)
+                # bootstrapping for user
+                if idrsapub != '':
+                    for h in myhosts:
+                        ssh_exec(user, pwd, ['mkdir -p .ssh',], h)
+                        sftp_put(user, pwd, idrsapub, '.ssh/id_rsa_prox.pub', h)
+                        ssh_exec(user, pwd, ['cat .ssh/id_rsa_prox.pub >> .ssh/authorized_keys',], h)                
+            else:
+                run_chef_knife('hostname')
+
             if args.runlist != '':
                 func = functools.partial(runlist_exec, pwd)
                 ret = easy_par(func, myhosts)
-                                                                
-            prn("**** login: ssh root@%s" % myhosts[0])
-            os.system('ssh -o PubkeyAuthentication=no root@%s' % myhosts[0])
             
-            #p = subprocess.Popen(['ssh', '-o', 'PubkeyAuthentication=no', 'root@%s' % myhosts[0]])
-                
+            prn("**** login: ssh %s%s" % (loginuser,myhosts[0]))
+            ret = subprocess.run("ssh %s%s"
+                 % (loginuser, myhosts[0]), shell=True)
+                                     
         else:
             
-            # deploy a VM from Image
+            # deploy a KVM VM from Image
 
             myimage = args.image
             if myimage == '':
@@ -442,8 +520,15 @@ def main():
                 prn('Please start the host with "prox start <hostname>"', usegui)
                                 
     print('')
-
-
+    
+def parse_contact(p,node,vmid):    
+    found = ''
+    cfg = p.getContainerConfig(node,vmid)['data']
+    if 'description' in cfg.keys() :
+        m = re.search('technical_contact: (.+?)@', cfg['description'])
+        if m:
+            found = m.group(1)
+    return found
 
 def start_machines(p, ourmachines, vmids, usegui=False):
     """ p = proxmox session, ourmachines= full dictionary of machines
@@ -497,15 +582,64 @@ def start_machines(p, ourmachines, vmids, usegui=False):
                 prn("Failed starting host id %s !" % vmid)
                 continue
 
+def run_chef_knife(host):
+    knife = "knife bootstrap --no-host-key-verify " \
+        "--ssh-user root --ssh-identity-file %s/.ssh/id_rsa_prox " \
+        "--environment=scicomp-env-compute " \
+        '--server-url "https://chef.fhcrc.org/organizations/cit" ' \
+        "--run-list 'role[cit-base]','role[scicomp-base]' " \
+        "--node-name %s " \
+        "%s" % (homedir,host,host)
+    if host == 'hostname': 
+        print('you can also execute this knife command manually:')
+        print('************************************')
+        print(knife)
+        print('************************************')
+    else:
+        print('*** executing knife command:')
+        print(knife)
+        ret = subprocess.run(knife, shell=True)
+
+def run_chef_client(host):
+    chefclient = "chef-client --environment scicomp-env-compute " \
+        "--validation_key /root/.chef/cit-validator.pem " \
+        "--runlist role[cit-base],role[scicomp-base] "
+    #print ('bootstrapping chef-client ... please wait a few minutes ... !!!')
+    #cmdlist = ['dpkg -i /opt/chef/tmp/chef_amd64.deb', chefclient]
+    #ssh_exec('root', pwd, cmdlist, h)
+        
+def check_ssh_auth(user):
+    if os.path.exists('%s/.ssh/id_rsa_prox' % homedir):
+        #print('%s/.ssh/id_rsa_prox does exist' % homedir)
+        return True
+    else:
+        ret = subprocess.run("ssh-keygen -q -t rsa -f %s/.ssh/id_rsa_prox -C prox-%s -N ''" 
+             % (homedir, user), shell=True)
+
+def check_ssh_agent():
+    SSH_AUTH_SOCK = os.getenv('SSH_AUTH_SOCK', '') # ssh agent runs 
+    if SSH_AUTH_SOCK == '':
+        print("\nYou don't have ssh-agent running, please execute this command:")        
+        if os.path.exists('%s/.ssh/id_rsa' % homedir):            
+            print("eval $(ssh-agent -s); ssh-add\n")
+        else:
+            print("eval $(ssh-agent -s)\n")
+            
+    else:
+        if os.path.exists('%s/.ssh/id_rsa_prox' % homedir):
+            ret = subprocess.run("ssh-add %s/.ssh/id_rsa_prox > /dev/null 2>&1"
+                 % homedir, shell=True)
+                 
 def runlist_exec(pwd, myhost):
     prn('***** Executing run list %s on host %s........' % (args.runlist, myhost))
-    if os.path.exists(args.runlist):
-        with open(args.runlist) as f:
+    rlist = os.path.expanduser(args.runlist.strip())
+    if os.path.exists(rlist):
+        with open(rlist) as f:
             commands = f.read().splitlines()
             prn('*** Running commands %s' % commands)
             ssh_exec('root', pwd, commands, myhost)
-    else:
-        ssh_exec('root', pwd, args.runlist, myhost)
+    else:        
+        ssh_exec('root', pwd, [args.runlist.strip(),], myhost)
 
 def ssh_exec(user, pwd, commands, host):
     """ execute list of commands via ssh """
@@ -520,6 +654,16 @@ def ssh_exec(user, pwd, commands, host):
         stdin, stdout, stderr = ssh.exec_command(command)
         for line in stdout.readlines():
             print(line.strip())
+            
+def sftp_put(user, pwd, src, dest, host):
+    """ upload a file to an sftp server """
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(
+        paramiko.AutoAddPolicy())        
+    ssh.connect(host, username=user, password=pwd)
+    sftp = ssh.open_sftp()
+    sftp.put(src, dest)
+    sftp.close()
 
 def def_input(message, defaultVal, usegui=False):
     if usegui:
@@ -589,8 +733,8 @@ def pingwait(hostname, waitsec):
 def build_notes(user, pool, desc='testing'):
     # desc =
     # owner             : _adm/infosec
-    # technical_contact : jli@fredhutch.org
-    # billing_contact   : cloudops@fredhutch.org
+    # technical_contact : abc@fredhutch.org
+    # billing_contact   : xyz@fredhutch.org
     # description       : firewall - inside interface in dedicated subnet
     # sle               : business_hours=24x7 / grant_critical=no /
     #                     phi=no / pii=no / publicly_accessible=no
@@ -794,36 +938,86 @@ class Settings(easygui.EgStore):
 def parse_arguments():
     """
     Gather command-line arguments.
-    """
-       
+    """       
     parser = argparse.ArgumentParser(prog='prox ',
         description='a tool for deploying resources from proxmox ' + \
             '(LXC containers or VMs)')
-    parser.add_argument( 'command', type=str, default='', nargs='?',
-        choices=['new','list','start','stop', 'modify','destroy', 'assist'],
-        help="a command to be executed. (new, list, start , stop , modify, destroy, assist")
-    parser.add_argument('hosts', action='store', default=[],  nargs='*',
-        help='hostname(s) of VM/containers (separated by space), ' +
-              '   example: prox new host1 host2 host3')
-    #parser.add_argument('--image', '-i', dest='image', action='store', default='', 
-        #help='QEMU / KVM image we clone to create a new VM')
-    parser.add_argument('--runlist', '-r', dest='runlist', action='store', default='', 
-        help='a local shell script file or a command to execute after install')
-    parser.add_argument('--mem', '-m', dest='mem', action='store', default='512',
-        help='Memory allocation for the machine, e.g. 4G or 512 Default: 512')
-    parser.add_argument('--disk', '-d', dest='disk', action='store', default='4', 
-        help='disk storage allocated to the machine. Default: 4')   
-    parser.add_argument('--cores', '-c', dest='cores', action='store', default='2', 
-        help='Number of cores to be allocated for the machine. Default: 2')           
-    parser.add_argument( '--storenet', '-n', dest='stornet', action='store_true', default=False,
-        help="use network storage (nfs, ceph) instead of local storage")
-    parser.add_argument('--vmid', '-v', dest='vmid', action='store', default='', 
-        help='vmid, proxmox primary key for a container or vm')
     parser.add_argument( '--debug', '-g', dest='debug', action='store_true', default=False,
         help="verbose output for all commands")
+              
     #parser.add_argument('--mailto', '-e', dest='mailto', action='store', default='', 
         #help='send to this email address to notify of a new deployment.')
+        
+    subparsers = parser.add_subparsers(dest="subcommand", help='sub-command help')
+    # ***
+    parser_ssh = subparsers.add_parser('ssh', aliases=['connect'], 
+        help='connect to first host via ssh')
+    parser_ssh.add_argument('hosts', action='store', default=[],  nargs='*',
+        help='hostname(s) of VM/containers (separated by space), ' +
+              '   example: prox ssh host1 host2 host3')    
+    # ***
+    parser_list = subparsers.add_parser('list', aliases=['ls', 'show'], 
+        help='list hosts(s) with status, size and contact (optional)')
+    parser_list.add_argument( '--all', '-a', dest='all', action='store_true', default=False,
+        help="show all hosts (LXC and KVM)")
+    parser_list.add_argument( '--contacts', '-c', dest='contacts', action='store_true', default=False,
+        help="show the technical contact / owner of the machine")
 
+    # ***
+    parser_start = subparsers.add_parser('start', aliases=['run'], 
+        help='start the host(s)')
+    parser_start.add_argument('hosts', action='store', default=[],  nargs='*',
+        help='hostname(s) of VM/containers (separated by space), ' +
+              '   example: prox start host1 host2 host3')    
+    # ***
+    parser_stop = subparsers.add_parser('stop', aliases=['shutdown'], 
+        help='stop the host(s)')
+    parser_stop.add_argument('hosts', action='store', default=[],  nargs='*',
+        help='hostname(s) of VM/containers (separated by space), ' +
+              '   example: prox stop host1 host2 host3')    
+    # ***
+    parser_destroy = subparsers.add_parser('destroy', aliases=['delete'], 
+        help='delete the hosts(s) from disk')
+    parser_destroy.add_argument('hosts', action='store', default=[],  nargs='*',
+        help='hostname(s) of VM/containers (separated by space), ' +
+              '   example: prox destroy host1 host2 host3')    
+    # ***
+    parser_modify = subparsers.add_parser('modify', aliases=['mod'], 
+        help='modify the config of one or more hosts')
+    parser_modify.add_argument('--mem', '-m', dest='mem', action='store', default='512',
+        help='Memory allocation for the machine, e.g. 4G or 512 Default: 512')
+    parser_modify.add_argument('--disk', '-d', dest='disk', action='store', default='4', 
+        help='disk storage allocated to the machine. Default: 4')   
+    parser_modify.add_argument('--cores', '-c', dest='cores', action='store', default='2', 
+        help='Number of cores to be allocated for the machine. Default: 2')        
+    parser_modify.add_argument('hosts', action='store', default=[],  nargs='*',
+        help='hostname(s) of VM/containers (separated by space), ' +
+              '   example: prox modify host1 host2 host3')
+    # ***
+    parser_new = subparsers.add_parser('new', aliases=['assist'], 
+        help='create one or more new hosts')
+    parser_new.add_argument('--runlist', '-r', dest='runlist', action='store', default='', 
+        help='a local shell script file or a command to execute after install')
+    parser_new.add_argument('--mem', '-m', dest='mem', action='store', default='512',
+        help='Memory allocation for the machine, e.g. 4G or 512 Default: 512')
+    parser_new.add_argument('--disk', '-d', dest='disk', action='store', default='4', 
+        help='disk storage allocated to the machine. Default: 4')   
+    parser_new.add_argument('--cores', '-c', dest='cores', action='store', default='2', 
+        help='Number of cores to be allocated for the machine. Default: 2')           
+    parser_new.add_argument( '--storenet', '-s', dest='stornet', action='store_true', default=False,
+        help="use network storage (nfs, ceph) instead of local storage")
+    parser_new.add_argument( '--bootstrap', '-b', dest='bootstrap', action='store_true', default=False,
+        help="auto-configure the system using Chef.")
+    parser_new.add_argument( '--no-bootstrap', '-n', dest='nobootstrap', action='store_true', default=False,
+        help="do not auto-configure the system using Chef.")
+    #parser_new.add_argument('--vmid', '-v', dest='vmid', action='store', default='', 
+        #help='vmid, proxmox primary key for a container or vm')
+    #parser_new.add_argument('--image', '-i', dest='image', action='store', default='', 
+        #help='QEMU / KVM image we clone to create a new VM')
+    parser_new.add_argument('hosts', action='store', default=[],  nargs='*',
+        help='hostname(s) of VM/containers (separated by space), ' +
+              '   example: prox new host1 host2 host3')
+        
     return parser.parse_args()
 
 if __name__ == "__main__":
