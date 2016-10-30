@@ -54,14 +54,8 @@ def main():
     # check/create ssh keys & agent
     check_ssh_agent()
     check_ssh_auth(user)    
-    # ******************************************************************
-    if args.subcommand == 'ssh':      
-        ret = subprocess.run("ssh -i %s/.ssh/id_rsa_prox root@%s"
-                 % (homedir, 'nana50'), shell=True)    
-    # ******************************************************************                
 
     # getting login and password 
-   
     #user='root'
     pwd = os.getenv('proxpw', '')
     #pwd=''    
@@ -81,6 +75,14 @@ def main():
     
     ###### END TESTING ##############
     
+    # ******************************************************************
+
+    if args.subcommand in ['ssh', 'connect']:
+        ret = subprocess.run("ssh -i %s/.ssh/id_rsa_prox %s"
+            % (homedir, args.hosts[0]), shell=True)
+        return True
+    
+    # ******************************************************************
     
     a = pyproxmox.prox_auth(PROXHOST, loginname, pwd, True)
     if a.ticket is None:
@@ -145,7 +147,7 @@ def main():
         
     # ******************************************************************
 
-    if args.subcommand == 'assist':
+    if args.subcommand in ['assist', 'gui']:
         if not usegui:
             print('running "prox assist" command which will guide you '
               'through a number of choices, however no GUI is available')
@@ -200,7 +202,7 @@ def main():
 
     # *********************************************************
     # setting some variables for LXC containers only    
-    if args.subcommand in ['new', 'modify', 'assist']:    
+    if args.subcommand in ['new', 'create', 'modify', 'mod', 'assist', 'gui']:    
         if "G" in args.mem.upper():
             lxcmem = int(re.sub("[^0-9^.]", "", args.mem))*1024
         else:
@@ -210,7 +212,7 @@ def main():
             
     # ******************************************************************
 
-    if args.subcommand == 'start':
+    if args.subcommand in ['start', 'run']:
 
         if not vmids:
             vmids.append(input('\nenter vmid to start:'))
@@ -224,7 +226,7 @@ def main():
 
     # ******************************************************************
 
-    if args.subcommand == 'stop':
+    if args.subcommand in ['stop', 'shutdown']:
         if not vmids:
             vmids.append(input('\nnot found, enter vmid to stop:'))
             if vmids[-1] == '':
@@ -255,7 +257,7 @@ def main():
 
     # ******************************************************************
 
-    if args.subcommand == 'modify':
+    if args.subcommand in ['modify', 'mod']:
         if not vmids:
             vmids.append(input('\nnot found, enter vmid to modify:'))
             if vmids[-1] == '':
@@ -301,7 +303,7 @@ def main():
                 
     # ******************************************************************
 
-    if args.subcommand == 'destroy':
+    if args.subcommand in ['destroy', 'delete']:
         if not vmids:
             vmids.append(input('\nnot found, enter vmid to destroy:'))
             if vmids[-1] == '':
@@ -333,7 +335,7 @@ def main():
                  
     # ******************************************************************
 
-    if args.subcommand == 'new':
+    if args.subcommand in ['new', 'create', 'make']:
 
         myhosts = args.hosts
         if len(myhosts) == 0:
@@ -950,6 +952,9 @@ def parse_arguments():
         
     subparsers = parser.add_subparsers(dest="subcommand", help='sub-command help')
     # ***
+    parser_ssh = subparsers.add_parser('assist', aliases=['gui'], 
+        help='navigate application via GUI (experimental)')
+    # ***
     parser_ssh = subparsers.add_parser('ssh', aliases=['connect'], 
         help='connect to first host via ssh')
     parser_ssh.add_argument('hosts', action='store', default=[],  nargs='*',
@@ -994,7 +999,7 @@ def parse_arguments():
         help='hostname(s) of VM/containers (separated by space), ' +
               '   example: prox modify host1 host2 host3')
     # ***
-    parser_new = subparsers.add_parser('new', aliases=['assist'], 
+    parser_new = subparsers.add_parser('new', aliases=['create'], 
         help='create one or more new hosts')
     parser_new.add_argument('--runlist', '-r', dest='runlist', action='store', default='', 
         help='a local shell script file or a command to execute after install')
