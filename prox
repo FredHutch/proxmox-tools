@@ -1,0 +1,10 @@
+#! /bin/bash
+
+# add better default options to swift command 
+#caller=`basename $0`
+module load python3/3.4.3 > /dev/null 2>&1
+options=''
+cmdline="$@"
+prox.py $cmdline 
+#cmd=${cmdline/upload/""}
+
