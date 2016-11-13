@@ -83,11 +83,11 @@ after that you can run pip3:
 ::
 
     pip3 install --upgrade pip
-    pip3 install --upgrade prox
+    pip3 install --upgrade proxmox-tools
 
-after that you just need to configure prox, you cna do this by uncommenting the lines that start
+after that you just need to configure prox, you can do this by uncommenting the lines that start
 with 'export ' directly in file /usr/local/bin/prox or you paste the export statements into file
-~/.proxrc of the home directory of the user who runs prox.
+~/.proxrc in the home directory of the user who runs prox.
 
 ::
 
