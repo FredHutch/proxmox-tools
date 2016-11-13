@@ -66,10 +66,41 @@ optional arguments:
 
 ```
 
+To install prox you can simply use pip3. But before you may need a few OS 
+packages. On Ubuntu / Debian you would run:
+```
+sudo apt-get install -y python3-pip python3-dev libffi-dev libssl-dev
+
+```
+and on CentOS/RedHat you would run:
+```
+yum -y install epel-release python34-devel libffi-devel openssl-devel
+```
+
+after that you can run pip3:
+```
+pip3 install --upgrade pip
+pip3 install --upgrade prox
+```
+after that you just need to configure prox, you cna do this by 
+uncommenting the lines that start with 'export ' directly in file 
+/usr/local/bin/prox or you paste the export statements into file
+~/.proxrc of the home directory of the user who runs prox.
+
+```
+> cat ~/.proxrc
+export PPROXHOST='proxmox.domain.org'
+export PREALM='pam' 
+export PLXCTEMPLATE='proxnfs:vztmpl/ubuntu-16.04-standard_16.04-1_amd64.tar.gz'
+export PSTORLOC='proxazfs'
+export PSTORNET='proxnfs'
+
+```
+
 now let's say you want to deploy a new docker host named sausage:
 
 ```
-user@rhino3:~$ prox --mem 1024 --disk 8 new sausage
+> prox new --mem 1024 --disk 8 sausage
 Password for 'user':
 
 creating host sausage with ID 121 in pool SciComp
@@ -88,15 +119,17 @@ that list will be executed on each machine. In this case we made a runlist
 that installs docker:
 
 ```
-user@rhino3:~$ cat ~/runlist-docker 
-apt-get update
-apt-get install -y docker-engine
+> cat ~/runlist-docker
+sudo apt-key adv --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys 58118E89F3A912897C070ADBF76221572C52609D
+sudo echo "deb https://apt.dockerproject.org/repo ubuntu-xenial main" > /etc/apt/sources.list.d/docker.list
+sudo apt-get update
+sudo apt-get install -y docker-engine
 ```
 
 now we can use the prox command to install multiple machines:
 
 ```
-user@rhino3:~$ prox --runlist ~/runlist-docker --disk 8 new sausage1 sausage2 sausage3
+> prox new --runlist ~/runlist-docker --disk 8 sausage1 sausage2 sausage3
 Password for 'user':
 
 creating host sausage1 with ID 116 in pool SciComp
@@ -120,15 +153,14 @@ Machine 121 : running, cpu: -1%
 and after you are done with your work you can stop and then destroy these machines: 
 
 ```
-user@rhino3:~$ prox stop sausage1 sausage2 sausage3
+> prox stop sausage1 sausage2 sausage3
 Password for 'user':
 
 UPID:proxa2:000060FE:01121EA2:57EEB2A1:vzstop:116:user@FHCRC.ORG:
 UPID:proxa3:00006110:01121EB3:57EEB2A1:vzstop:118:user@FHCRC.ORG:
 UPID:proxa4:00006127:01121EC6:57EEB2A1:vzstop:121:user@FHCRC.ORG:
 
-user@rhino3:~$ 
-user@rhino3:~$ prox destroy sausage1 sausage2 sausage3
+> prox destroy sausage1 sausage2 sausage3
 Password for 'user':
 
 UPID:proxa2:000061C7:01122C18:57EEB2C4:vzdestroy:116:user@FHCRC.ORG:
