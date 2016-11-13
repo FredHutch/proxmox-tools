@@ -53,8 +53,7 @@ prox is a command line interface to rapidly deploy LXC containers on proxmox fro
     classifiers = CLASSIFIERS,
     install_requires=[
         'paramiko',
-        'requests',
-        'warnings'
+        'requests'
         ],
     entry_points={
         # we use console_scripts here to allow virtualenv to rewrite shebangs
