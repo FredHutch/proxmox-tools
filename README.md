@@ -104,9 +104,9 @@ now let's say you want to deploy a new docker host named sausage:
 Password for 'user':
 
 creating host sausage with ID 121 in pool SciComp
-    ...UPID:proxa3:00001F6C:00F2DBDE:57EE629A:vzcreate:121:user@FHCRC.ORG:
+    ...UPID:proxa3:00001F6C:00F2DBDE:57EE629A:vzcreate:121:user@DOMAIN.ORG:
 Starting host 121 ..
-    ...UPID:proxa3:00001FB3:00F2E185:57EE62A8:vzstart:121:user@FHCRC.ORG:
+    ...UPID:proxa3:00001FB3:00F2E185:57EE62A8:vzstart:121:user@DOMAIN.ORG:
 Machine 121 : running, cpu: 0% 
 
 waiting for machine sausage to come up .. hit ctrl+c to stop ping
@@ -133,20 +133,20 @@ now we can use the prox command to install multiple machines:
 Password for 'user':
 
 creating host sausage1 with ID 116 in pool SciComp
-    ...UPID:proxa3:000039A6:0111B96E:57EEB19E:vzcreate:116:user@FHCRC.ORG:
+    ...UPID:proxa3:000039A6:0111B96E:57EEB19E:vzcreate:116:user@DOMAIN.ORG:
 creating host sausage2 with ID 118 in pool SciComp
-    ...UPID:proxa3:000039B6:0111B980:57EEB19E:vzcreate:118:user@FHCRC.ORG:
+    ...UPID:proxa3:000039B6:0111B980:57EEB19E:vzcreate:118:user@DOMAIN.ORG:
 creating host sausage3 with ID 121 in pool SciComp
-    ...UPID:proxa3:000039C4:0111B991:57EEB19E:vzcreate:121:user@FHCRC.ORG:
+    ...UPID:proxa3:000039C4:0111B991:57EEB19E:vzcreate:121:user@DOMAIN.ORG:
 Starting host 116 ..
 starting host 116, re-try 0
-    ...UPID:proxa3:00003A04:0111BCB7:57EEB1A6:vzstart:116:user@FHCRC.ORG:
+    ...UPID:proxa3:00003A04:0111BCB7:57EEB1A6:vzstart:116:user@DOMAIN.ORG:
 Machine 116 : running, cpu: 0% 
 Starting host 118 ..
-    ...UPID:proxa3:00003AF7:0111BD3C:57EEB1A8:vzstart:118:user@FHCRC.ORG:
+    ...UPID:proxa3:00003AF7:0111BD3C:57EEB1A8:vzstart:118:user@DOMAIN.ORG:
 Machine 118 : running, cpu: 0% 
 Starting host 121 ..
-    ...UPID:proxa3:00003BE2:0111BDC2:57EEB1A9:vzstart:121:user@FHCRC.ORG:
+    ...UPID:proxa3:00003BE2:0111BDC2:57EEB1A9:vzstart:121:user@DOMAIN.ORG:
 Machine 121 : running, cpu: -1% 
 ```
 
@@ -156,16 +156,16 @@ and after you are done with your work you can stop and then destroy these machin
 > prox stop sausage1 sausage2 sausage3
 Password for 'user':
 
-UPID:proxa2:000060FE:01121EA2:57EEB2A1:vzstop:116:user@FHCRC.ORG:
-UPID:proxa3:00006110:01121EB3:57EEB2A1:vzstop:118:user@FHCRC.ORG:
-UPID:proxa4:00006127:01121EC6:57EEB2A1:vzstop:121:user@FHCRC.ORG:
+UPID:proxa2:000060FE:01121EA2:57EEB2A1:vzstop:116:user@DOMAIN.ORG:
+UPID:proxa3:00006110:01121EB3:57EEB2A1:vzstop:118:user@DOMAIN.ORG:
+UPID:proxa4:00006127:01121EC6:57EEB2A1:vzstop:121:user@DOMAIN.ORG:
 
 > prox destroy sausage1 sausage2 sausage3
 Password for 'user':
 
-UPID:proxa2:000061C7:01122C18:57EEB2C4:vzdestroy:116:user@FHCRC.ORG:
-UPID:proxa3:000061CB:01122C2A:57EEB2C4:vzdestroy:118:user@FHCRC.ORG:
-UPID:proxa4:000061CF:01122C3B:57EEB2C4:vzdestroy:121:user@FHCRC.ORG:
+UPID:proxa2:000061C7:01122C18:57EEB2C4:vzdestroy:116:user@DOMAIN.ORG:
+UPID:proxa3:000061CB:01122C2A:57EEB2C4:vzdestroy:118:user@DOMAIN.ORG:
+UPID:proxa4:000061CF:01122C3B:57EEB2C4:vzdestroy:121:user@DOMAIN.ORG:
 ```
 
 proxhostname.py
