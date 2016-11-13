@@ -28,13 +28,13 @@ import json, requests
 class prox_auth:
     """
     The authentication class, requires three strings:
-    
+
     1. An IP/resolvable url (minus the https://)
     2. Valid username, including the @pve or @pam
     3. A password
-    
+
     Creates the required ticket and CSRF prevention token for future connections.
-    
+
     Designed to be instanciated then passed to the new pyproxmox class as an init parameter.
     """
     def __init__(self,url,username,password,verifycert):
@@ -43,7 +43,7 @@ class prox_auth:
         self.full_url = "https://%s:8006/api2/json/access/ticket" % (self.url)
 
         self.response = requests.post(self.full_url,verify=verifycert,data=self.connect_data)
-    
+
         self.returned_data = self.response.json()
         #if self.returned_data['data'] == None:
         try:
@@ -52,14 +52,14 @@ class prox_auth:
         except:
             self.ticket = None
             self.CSRF = None
-            
+
 
 # The meat and veg class
 class pyproxmox:
     """
     A class that acts as a python wrapper for the Proxmox 2.x API.
     Requires a valid instance of the prox_auth class when initializing.
-    
+
     GET and POST methods are currently implemented along with quite a few
     custom API methods.
     """
@@ -69,13 +69,13 @@ class pyproxmox:
         self.url = auth_class.url
         self.ticket = auth_class.ticket
         self.CSRF = auth_class.CSRF
-    
+
     def connect(self, conn_type, option, post_data):
         """
         The main communication method.
         """
         self.full_url = "https://%s:8006/api2/json/%s" % (self.url,option)
-    
+
         httpheaders = {'Accept':'application/json'}  # disabled   ,'Content-Type':'application/x-www-form-urlencoded'
 
         if conn_type == "post":
@@ -209,7 +209,7 @@ class pyproxmox:
         """Read node RRD statistics. Returns PNG"""
         data = self.connect('get','nodes/%s/rrd' % (node),None)
         return data
-    
+
     def getNodeRRDData(self,node):
         """Read node RRD statistics. Returns RRD"""
         data = self.connect('get','nodes/%s/rrddata' % (node),None)
@@ -263,7 +263,7 @@ class pyproxmox:
         return data
 
     # LXC Methods
-    
+
     def getContainers(self,node):
         """Directory index. Returns JSON"""
         data = self.connect('get','nodes/%s/lxc' % node,None)
@@ -308,7 +308,7 @@ class pyproxmox:
         """Read VM RRD statistics. Returns RRD"""
         data = self.connect('get','nodes/%s/lxc/%s/snapshot' % (node,vmid),None)
         return data
-    
+
     # KVM Methods
 
     def getVirtualIndex(self,node,vmid):
@@ -347,7 +347,7 @@ class pyproxmox:
         """Read storage config. Returns JSON"""
         data = self.connect('get','storage/%s' % (storage),None)
         return data
-    
+
     def getNodeStorageContent(self,node,storage):
         """List storage content. Returns JSON"""
         data = self.connect('get','nodes/%s/storage/%s/content' % (node,storage),None)
@@ -385,7 +385,7 @@ class pyproxmox:
         """
         data = self.connect('post','access/groups', post_data)
         return data
-        
+
     # Pools
 
     def createPool(self,post_data):
@@ -398,7 +398,7 @@ class pyproxmox:
 
 
     # LXC Methods
-    
+
     def createLXCContainer(self,node,post_data):
         """
         Create or restore a container. Returns JSON
@@ -464,7 +464,7 @@ class pyproxmox:
         """
         data = self.connect('post',"nodes/%s/qemu" % (node), post_data)
         return data
-        
+
     def cloneVirtualMachine(self,node,vmid,post_data):
         """
         Create a copy of virtual machine/template
@@ -472,31 +472,31 @@ class pyproxmox:
         """
         data = self.connect('post',"nodes/%s/qemu/%s/clone" % (node,vmid), post_data)
         return data
-        
+
     def resetVirtualMachine(self,node,vmid):
         """Reset a virtual machine. Returns JSON"""
         post_data = None
         data = self.connect('post',"nodes/%s/qemu/%s/status/reset" % (node,vmid), post_data)
         return data
-        
+
     def resumeVirtualMachine(self,node,vmid):
         """Resume a virtual machine. Returns JSON"""
         post_data = None
         data = self.connect('post',"nodes/%s/qemu/%s/status/resume" % (node,vmid), post_data)
         return data
-        
+
     def shutdownVirtualMachine(self,node,vmid):
         """Shut down a virtual machine. Returns JSON"""
         post_data = None
         data = self.connect('post',"nodes/%s/qemu/%s/status/shutdown" % (node,vmid), post_data)
         return data
-    
+
     def startVirtualMachine(self,node,vmid):
         """Start a virtual machine. Returns JSON"""
         post_data = None
         data = self.connect('post',"nodes/%s/qemu/%s/status/start" % (node,vmid), post_data)
         return data
-        
+
     def stopVirtualMachine(self,node,vmid):
         """Stop a virtual machine. Returns JSON"""
         post_data = None
@@ -508,7 +508,7 @@ class pyproxmox:
         post_data = None
         data = self.connect('post',"nodes/%s/qemu/%s/status/suspend" % (node,vmid), post_data)
         return data
-        
+
     def migrateVirtualMachine(self,node,vmid,target,online=False,force=False):
         """Migrate a virtual machine. Returns JSON"""
         post_data = {'target': str(target)}
@@ -524,7 +524,7 @@ class pyproxmox:
         post_data = {'command': str(command)}
         data = self.connect('post',"nodes/%s/qemu/%s/monitor" % (node,vmid), post_data)
         return data
-        
+
     def vncproxyVirtualMachine(self,node,vmid):
         """Creates a VNC Proxy for a virtual machine. Returns JSON"""
         post_data = None
@@ -536,44 +536,44 @@ class pyproxmox:
         post_data = None
         data = self.connect('post',"nodes/%s/qemu/%s/snapshot/%s/rollback" % (node,vmid,snapname), post_data)
         return data
-    
+
     def getSnapshotConfigVirtualMachine(self,node,vmid,snapname):
         """Get snapshot config of a virtual machine. Returns JSON"""
         post_data = None
         data = self.connect('get',"nodes/%s/qemu/%s/snapshot/%s/config" % (node,vmid,snapname), post_data)
         return data
 
-        
+
     """
     Methods using the DELETE protocol to communicate with the Proxmox API. 
     """
 
     # LXC
-    
+
     def deleteLXCContainer(self,node,vmid):
         """Deletes the specified lxc container"""
         data = self.connect('delete',"nodes/%s/lxc/%s" % (node,vmid),None)
         return data
 
     # NODE
-    
+
     def deleteNodeNetworkConfig(self,node):
         """Revert network configuration changes."""
         data = self.connect('delete',"nodes/%s/network" % (node),None)
         return data
-    
+
     def deleteNodeInterface(self,node,interface):
         """Delete network device configuration"""
         data = self.connect('delete',"nodes/%s/network/%s" % (node,interface),None)
         return data
-    
+
     #KVM
-    
+
     def deleteVirtualMachine(self,node,vmid):
         """Destroy the vm (also delete all used/owned volumes)."""
         data = self.connect('delete',"nodes/%s/qemu/%s" % (node,vmid),None)
         return data
-        
+
     # POOLS
     def deletePool(self,poolid):
         """Delete Pool"""
@@ -602,7 +602,7 @@ class pyproxmox:
         post_data = {'key': str(key)}
         data = self.connect('put',"nodes/%s/subscription" % (node), post_data)
         return data
-        
+
     def setNodeTimeZone(self,node,timezone):
         """Set the nodes timezone"""
         post_data = {'timezone': str(timezone)}
@@ -614,12 +614,12 @@ class pyproxmox:
         """Set lxc virtual machine options."""
         data = self.connect('put',"nodes/%s/lxc/%s/config" % (node,vmid), post_data)
         return data
-        
+
     def resizeLXCContainer(self,node,vmid,post_data):
         """Set lxc virtual machine options."""
         data = self.connect('put',"nodes/%s/lxc/%s/resize" % (node,vmid), post_data)
         return data
-    
+
     # KVM
     def setVirtualMachineOptions(self,node,vmid,post_data):
         """Set KVM virtual machine options."""
@@ -649,4 +649,4 @@ class pyproxmox:
         data = self.connect('put',"storage/%s" % (storageid), post_data)
         return data
 
-        
+

@@ -12,11 +12,11 @@ import time, warnings, functools, random, json, requests, paramiko, socket
 try:
     import easygui
 except:
-    pass    
+    pass
 
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=DeprecationWarning)
-    import pyproxmox
+    from .pyproxmox import *
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -30,21 +30,131 @@ USERDB = os.getenv('PUSERDB', 'https://toolbox.fhcrc.org/json/sc_users.json')
 
 homedir = os.path.expanduser("~")
 
+def parse_arguments():
+    """
+    Gather command-line arguments.
+    """       
+    parser = argparse.ArgumentParser(prog='prox ',
+        description='a tool for deploying resources from proxmox ' + \
+            '(LXC containers or VMs)')
+    parser.add_argument( '--debug', '-g', dest='debug', action='store_true', default=False,
+        help="verbose output for all commands")
+
+    subparsers = parser.add_subparsers(dest="subcommand", help='sub-command help')
+    # ***
+    parser_ssh = subparsers.add_parser('assist', aliases=['gui'], 
+        help='navigate application via GUI (experimental)')
+    # ***
+    parser_ssh = subparsers.add_parser('ssh', aliases=['connect'], 
+        help='connect to first host via ssh')
+    parser_ssh.add_argument('hosts', action='store', default=[],  nargs='*',
+        help='hostname(s) of VM/containers (separated by space), ' +
+              '   example: prox ssh host1 host2 host3')    
+    # ***
+    parser_list = subparsers.add_parser('list', aliases=['ls', 'show'], 
+        help='list hosts(s) with status, size and contact (optional)')
+    parser_list.add_argument( '--all', '-a', dest='all', action='store_true', default=False,
+        help="show all hosts (LXC and KVM)")
+    parser_list.add_argument( '--contacts', '-c', dest='contacts', action='store_true', default=False,
+        help="show the technical contact / owner of the machine")
+    parser_list.add_argument( '--snapshots', '-s', dest='listsnap', action='store_true', default=False,
+        help="list machine snapshots that can be rolled back")
+    parser_list.add_argument('hosts', action='store', default=[],  nargs='*',
+        help='hostname(s) of VM/containers (separated by space), ' +
+              '   example: prox modify host1 host2 host3')
+
+    # ***
+    parser_start = subparsers.add_parser('start', aliases=['run'], 
+        help='start the host(s)')
+    parser_start.add_argument('hosts', action='store', default=[],  nargs='*',
+        help='hostname(s) of VM/containers (separated by space), ' +
+              '   example: prox start host1 host2 host3')    
+    # ***
+    parser_stop = subparsers.add_parser('stop', aliases=['shutdown'], 
+        help='stop the host(s)')
+    parser_stop.add_argument('hosts', action='store', default=[],  nargs='*',
+        help='hostname(s) of VM/containers (separated by space), ' +
+              '   example: prox stop host1 host2 host3')
+    # ***
+    parser_destroy = subparsers.add_parser('destroy', aliases=['delete'], 
+        help='delete the hosts(s) from disk')
+    parser_destroy.add_argument('hosts', action='store', default=[],  nargs='*',
+        help='hostname(s) of VM/containers (separated by space), ' +
+              '   example: prox destroy host1 host2 host3')    
+    # ***
+    parser_modify = subparsers.add_parser('modify', aliases=['mod'], 
+        help='modify the config of one or more hosts')
+    parser_modify.add_argument('--mem', '-m', dest='mem', action='store', default='0',
+        help='Memory allocation for the machine, e.g. 4G or 512')
+    parser_modify.add_argument('--disk', '-d', dest='disk', action='store', default='0', 
+        help='disk storage allocated to the machine.')   
+    parser_modify.add_argument('--cores', '-c', dest='cores', action='store', default='0', 
+        help='Number of cores to be allocated for the machine.')        
+    parser_modify.add_argument('hosts', action='store', default=[],  nargs='*',
+        help='hostname(s) of VM/containers (separated by space), ' +
+              '   example: prox modify host1 host2 host3')
+
+    # ***
+    parser_snap = subparsers.add_parser('snap', aliases=['snapshot'], 
+        help='take a snapshot of the host')
+    parser_snap.add_argument('--description', '-d', dest='snapdesc', action='store', default='',
+        help='description of the snapshot')
+    parser_snap.add_argument('snapname', action='store', 
+        help='name of the snapshot')
+    parser_snap.add_argument('hosts', action='store', default=[],  nargs='*',
+        help='hostname(s) of VM/containers (separated by space), ' +
+              '   example: prox snap host1 host2 host3')
+
+
+    # ***
+    parser_rollback = subparsers.add_parser('rollback', aliases=['rb'], 
+        help='roll back a snapshot')
+    parser_rollback.add_argument('snapname', action='store', 
+        help='name of the snapshot')
+    parser_rollback.add_argument('hosts', action='store', default=[],  nargs='*',
+        help='hostname(s) of VM/containers (separated by space), ' +
+              '   example: prox snap host1 host2 host3')
+
+    # ***
+    parser_new = subparsers.add_parser('new', aliases=['create'], 
+        help='create one or more new hosts')
+    parser_new.add_argument('--runlist', '-r', dest='runlist', action='store', default='', 
+        help='a local shell script file or a command to execute after install')
+    parser_new.add_argument('--mem', '-m', dest='mem', action='store', default='512',
+        help='Memory allocation for the machine, e.g. 4G or 512 Default: 512')
+    parser_new.add_argument('--disk', '-d', dest='disk', action='store', default='4', 
+        help='disk storage allocated to the machine. Default: 4')   
+    parser_new.add_argument('--cores', '-c', dest='cores', action='store', default='2', 
+        help='Number of cores to be allocated for the machine. Default: 2')           
+    parser_new.add_argument( '--store-net', '-s', dest='stornet', action='store_true', default=False,
+        help="use networked storage with backup (nfs, ceph) instead of local storage")
+    parser_new.add_argument( '--bootstrap', '-b', dest='bootstrap', action='store_true', default=False,
+        help="auto-configure the system using Chef.")
+    parser_new.add_argument( '--no-bootstrap', '-n', dest='nobootstrap', action='store_true', default=False,
+        help="do not auto-configure the system using Chef.")
+    parser_new.add_argument('hosts', action='store', default=[],  nargs='*',
+        help='hostname(s) of VM/containers (separated by space), ' +
+              '   example: prox new host1 host2 host3')
+
+    return parser.parse_args()
+
+args = parse_arguments()
+
 def main():
 
     uselxc = True
     usegui = False
     user = getpass.getuser()
-    
+
     if not args.subcommand:
         print('usage: prox <command> [options] host1 host2 host3') 
         print('       Please run "prox --help"')
         return False
-    
+
     if args.subcommand == 'assist':
         if 'DISPLAY' in os.environ.keys() or sys.platform == 'win32':
             usegui = True
-    
+
     if args.debug:
         print('Debugging ....')                                                  
         print(args, l)
@@ -68,29 +178,29 @@ def main():
             if pwd == '':
                 return False
     loginname = user + '@' + REALM
-    
+
     #### TESTING ###############
     #ssh_exec(user, pwd, commands=['ls -l', 'pwd', 'ps'], 'rhino1')
     #runlist_exec(pwd, 'boner3')
     #return False
-    
-    
+
+
     ###### END TESTING ##############
-    
+
     # ******************************************************************
 
     if args.subcommand in ['ssh', 'connect']:
         ret = subprocess.run("ssh -i %s/.ssh/id_rsa_prox %s"
             % (homedir, args.hosts[0]), shell=True)
         return True
-    
+
     # ******************************************************************
-    
-    a = pyproxmox.prox_auth(PROXHOST, loginname, pwd, True)
+
+    a = prox_auth(PROXHOST, loginname, pwd, True)
     if a.ticket is None:
         prn('Could not get an authentication ticket. Wrong password?', usegui)
         return False
-    p = pyproxmox.pyproxmox(a)
+    p = pyproxmox(a)
 
     pool = p.getPools()['data'][0]['poolid']
     nodelist = p.getNodes()['data']
@@ -108,16 +218,16 @@ def main():
         node = n['node']
         nodes.append(node)
         # get list of containers and VMs
-        conts = p.getContainers(node)['data']            
+        conts = p.getContainers(node)['data']
         for c in conts:
             descr = ''
-            if args.subcommand in ['list', 'ls', 'show']:                
+            if args.subcommand in ['list', 'ls', 'show']:
                 if args.contacts:
                     descr = parse_contact(p,node,c['vmid'])
                 if args.listsnap:
-                    shots = p.getContainerSnapshots(node,c['vmid'])['data']                    
+                    shots = p.getContainerSnapshots(node,c['vmid'])['data']
                     oursnaps[int(c['vmid'])] = shots
-                    
+
             ourmachines[int(c['vmid'])] = [c['vmid'], c[
                 'name'], c['type'], c['status'], node, int(c['maxmem'])/
                 1024/1024/1024, c['cpus'], int(c['maxdisk'])/1024/1024/1024, 
@@ -142,10 +252,10 @@ def main():
         vmids = getvmids(ourmachines, args.hosts)
 
     print('')
-    
+
     # ******************************************************************
     #getContainerSnapshots
-        
+
     if args.subcommand in ['list', 'ls', 'show'] or (
         args.subcommand in [
             'start', 'stop', 'destroy', 'modify', 'mod'] and not vmids):                
@@ -156,7 +266,7 @@ def main():
 
         for k, v in sorted(ourmachines.items()):
             prn(' {0: <5} {1: <20} {2: <5} {3: <9} {4: <8} {5: <5} {6: <3} {7: <5.0f} {8: <10}'.format(*v))
-            
+
             if args.subcommand in ['list', 'ls', 'show']: 
                 if args.listsnap and k in oursnaps.keys():
                     for snap in oursnaps[k]:
@@ -178,7 +288,7 @@ def main():
             print('running "prox assist" command which will guide you '
               'through a number of choices, however no GUI is available')
             return False
-            
+
         chce = []
         msg = ("Running 'prox assist'! Please select from the list "
                "below or 'Cancel' and run 'prox --help' for other options. "
@@ -188,10 +298,10 @@ def main():
         'New docker host', 'New virtual machine', 'List machines', 
         'Start machine', 'Stop machine', 'Modify machine', 
         'Destroy machine'])
-        
+
         if not chce:
             return False
-        
+
         if chce.startswith('New '):
             args.subcommand = 'new'
             if chce != "New linux machine":
@@ -211,20 +321,20 @@ def main():
                     args.mem, args.cores, args.disk = fieldValues
                 else:
                     return False
-                                    
+
         elif chce.startswith('List '):
             args.subcommand = 'list'
         elif chce.startswith('Start '):
-            args.subcommand = 'start'                
+            args.subcommand = 'start'
         elif chce.startswith('Stop '):
             args.subcommand = 'stop'
         elif chce.startswith('Modify '):
             args.subcommand = 'modify'
         elif chce.startswith('Destroy '):
-            args.subcommand = 'destroy'                
+            args.subcommand = 'destroy'
         else:
             args.subcommand = 'assist'
-                                    
+
 
     # *********************************************************
     # setting some variables for LXC containers only    
@@ -247,7 +357,7 @@ def main():
         start_machines(p, ourmachines, vmids, usegui=False)
 
         pingwait(ourmachines[vmids[0]][1],1)
-        
+
 
     # ******************************************************************
 
@@ -324,12 +434,12 @@ def main():
                             prn ('Error 50X, could not resize disk', usegui)
                         else:
                             pass
-                            
+
                 if post_data != {}:
-                    
+
                     ret = p.setLXCContainerOptions(machine[4], vmid, 
                                                  post_data)['data']
-                                                 
+
                     if iserr(ret,400):
                         prn ('Error 40X, could not set machine options', usegui)
                     elif iserr(ret,500):
@@ -337,7 +447,7 @@ def main():
 
 
                 if post_data != {} or post_data2 != {}:
-            
+
                     ret = p.getContainerConfig(machine[4], vmid)['data']
                     print ('Machine reconfigured. New settings '
                            'cores: %s, mem: %s MB, rootfs: %s ' 
@@ -346,7 +456,7 @@ def main():
                             )
                 else:
                     prn('No changes made', usegui)
-                
+
     # ******************************************************************
 
     if args.subcommand in ['destroy', 'delete']:
@@ -370,15 +480,15 @@ def main():
             else:
                 ret = p.deleteLXCContainer(machine[4], vmid)['data']
                 print(ret)
-                
+
             hip = '127.0.0.1'
             try:
                 hip = socket.gethostbyname(machine[1])
             except:
-                pass                
+                pass
             ret = subprocess.run("ssh-keygen -R %s,%s > /dev/null 2>&1" 
-                 % (machine[1], hip), shell=True)                
-                 
+                 % (machine[1], hip), shell=True)
+
 
     # ******************************************************************
 
@@ -392,11 +502,6 @@ def main():
                 prn('machine with id %s does not exist' % vmid)
                 return False
             machine = ourmachines[vmid]
-            #if machine[3] != 'stopped':
-            #    print(
-            #    'Machine "%s" needs to be stopped before it can be destroyed!' %
-            #        machine[1])
-            #    continue
             if machine[2] == 'kvm':
                 print('KVM machines are currently not supported')
                 continue
@@ -427,12 +532,12 @@ def main():
             if machine[2] == 'kvm':
                 print('KVM machines are currently not supported')
                 continue
-            else:                
+            else:
                 post_data = {
                     'snapname': args.snapname}
                 ret = p.rollbackSnapshotLXCContainer(machine[4],vmid,args.snapname)['data']
                 print(ret)
-            
+
     # ******************************************************************
 
     if args.subcommand in ['new', 'create', 'make']:
@@ -463,11 +568,11 @@ def main():
             storage = STORNET
 
         newhostids = []
-                
+
         ###############   TEST SECTION ############################
-        
+
         ############################################################
-                
+
         # deploy a container
         if uselxc:
             newcontid = 0
@@ -508,12 +613,12 @@ def main():
                 newhostids.append(int(newcontid))
                 ourmachines[int(newcontid)] = [newcontid, h, 'lxc', 
                             'stopped', mynode]
-                
+
             #if yn_choice("Do you want to start the machine(s) now?"):
-            start_machines(p, ourmachines, newhostids, usegui=False)                        
-                
+            start_machines(p, ourmachines, newhostids, usegui=False)
+
             pingwait(myhosts[-1],1)
-                        
+
             # basic bootstrapping 
             idrsapub = ''
             if os.path.exists('%s/.ssh/id_rsa_prox.pub' % homedir):
@@ -531,20 +636,20 @@ def main():
                     % (user, user), 'chmod 440 /etc/sudoers.d/%s' % user], h)
                 # remove some packages 
                 #ssh_exec('root', pwd, ['apt-get remove -y apache2', 'apt-get autoremove'], h)
-                                
+
                 # clean out old host keys
                 hip = '127.0.0.1'
                 try:
-                    hip = socket.gethostbyname(h)            
+                    hip = socket.gethostbyname(h)
                 except:
                     pass
                 ret = subprocess.run("ssh-keygen -R %s,%s > /dev/null 2>&1" 
                  % (h, hip), shell=True)
-                
+
                 # add the host keys to my local known_hosts
                 ret = subprocess.run("ssh-keyscan -t rsa %s >> %s/.ssh/known_hosts 2>/dev/null" 
                  % (h, homedir), shell=True)
-            
+
             # potentially running chef knife
             loginuser='root@'
             dobootstrap = False
@@ -556,7 +661,7 @@ def main():
                 if os.path.exists('%s/.chef' % homedir):
                     if yn_choice("\nDo you want to install the SciComp base config (e.g. user login) ?"):
                         dobootstrap = True
-            if dobootstrap:                    
+            if dobootstrap:
                 loginuser=''
                 ret = easy_par(run_chef_knife, myhosts)
                 # bootstrapping for user
@@ -571,13 +676,13 @@ def main():
             if args.runlist != '':
                 func = functools.partial(runlist_exec, pwd)
                 ret = easy_par(func, myhosts)
-            
+
             prn("**** login: ssh %s%s" % (loginuser,myhosts[0]))
             ret = subprocess.run("ssh %s%s"
                  % (loginuser, myhosts[0]), shell=True)
-                                     
+
         else:
-            
+
             # deploy a KVM VM from Image
 
             myimage = args.image
@@ -628,9 +733,9 @@ def main():
                 pingwait(myhosts[0],7)
             else:
                 prn('Please start the host with "prox start <hostname>"', usegui)
-                                
+
     print('')
-    
+
 def parse_contact(p,node,vmid):    
     found = ''
     cfg = p.getContainerConfig(node,vmid)['data']
@@ -644,7 +749,7 @@ def start_machines(p, ourmachines, vmids, usegui=False):
     """ p = proxmox session, ourmachines= full dictionary of machines
         vmids = list of machine-id we want to start
     """
-    
+
     for vmid in vmids:
         machine = ourmachines[vmid]
         ret = None
@@ -669,7 +774,7 @@ def start_machines(p, ourmachines, vmids, usegui=False):
                 ret = p.startLXCContainer(machine[4], vmid)['data']
                 if isinstance(ret, str):
                     print('    ...%s' % ret)
-                    break                        
+                    break
                 time.sleep(1)
                 print('starting host %s, re-try %s' % (vmid, i))
             if not isinstance(ret, str):
@@ -687,7 +792,7 @@ def start_machines(p, ourmachines, vmids, usegui=False):
                         break
                 else:
                     print('    ...Error %s' % ret)
-                    
+
             if isinstance(ret, int):
                 prn("Failed starting host id %s !" % vmid)
                 continue
@@ -733,16 +838,16 @@ def check_ssh_agent():
     SSH_AUTH_SOCK = os.getenv('SSH_AUTH_SOCK', '') # ssh agent runs 
     if SSH_AUTH_SOCK == '':
         print("\nYou don't have ssh-agent running, please execute this command:")        
-        if os.path.exists('%s/.ssh/id_rsa' % homedir):            
+        if os.path.exists('%s/.ssh/id_rsa' % homedir):
             print("eval $(ssh-agent -s); ssh-add\n")
         else:
             print("eval $(ssh-agent -s)\n")
-            
+
     else:
         if os.path.exists('%s/.ssh/id_rsa_prox' % homedir):
             ret = subprocess.run("ssh-add %s/.ssh/id_rsa_prox > /dev/null 2>&1"
                  % homedir, shell=True)
-                 
+
 def runlist_exec(pwd, myhost):
     prn('***** Executing run list %s on host %s........' % (args.runlist, myhost))
     rlist = os.path.expanduser(args.runlist.strip())
@@ -751,7 +856,7 @@ def runlist_exec(pwd, myhost):
             commands = f.read().splitlines()
             prn('*** Running commands %s' % commands)
             ssh_exec('root', pwd, commands, myhost)
-    else:        
+    else:
         ssh_exec('root', pwd, [args.runlist.strip(),], myhost)
 
 def ssh_exec(user, pwd, commands, host):
@@ -767,7 +872,7 @@ def ssh_exec(user, pwd, commands, host):
         stdin, stdout, stderr = ssh.exec_command(command)
         for line in stdout.readlines():
             print(line.strip())
-            
+
 def sftp_put(user, pwd, src, dest, host):
     """ upload a file to an sftp server """
     ssh = paramiko.SSHClient()
@@ -875,7 +980,7 @@ def build_notes(user, pool, desc='testing'):
     division=jsearchone(j,'uid',user,'division')
     dept_manager=jsearchone(j,'uid',user,'dept_manager')
     mgr_mail=jsearchone(j,'uid',dept_manager,'mail')
-    
+
     notes = (
     "owner: %s/%s\n" 
     "technical_contact: %s\n"
@@ -954,123 +1059,8 @@ def easy_par(f, sequence):
         pool.join()
         return cleaned
 
-def parse_arguments():
-    """
-    Gather command-line arguments.
-    """       
-    parser = argparse.ArgumentParser(prog='prox ',
-        description='a tool for deploying resources from proxmox ' + \
-            '(LXC containers or VMs)')
-    parser.add_argument( '--debug', '-g', dest='debug', action='store_true', default=False,
-        help="verbose output for all commands")
-              
-    #parser.add_argument('--mailto', '-e', dest='mailto', action='store', default='', 
-        #help='send to this email address to notify of a new deployment.')
-        
-    subparsers = parser.add_subparsers(dest="subcommand", help='sub-command help')
-    # ***
-    parser_ssh = subparsers.add_parser('assist', aliases=['gui'], 
-        help='navigate application via GUI (experimental)')
-    # ***
-    parser_ssh = subparsers.add_parser('ssh', aliases=['connect'], 
-        help='connect to first host via ssh')
-    parser_ssh.add_argument('hosts', action='store', default=[],  nargs='*',
-        help='hostname(s) of VM/containers (separated by space), ' +
-              '   example: prox ssh host1 host2 host3')    
-    # ***
-    parser_list = subparsers.add_parser('list', aliases=['ls', 'show'], 
-        help='list hosts(s) with status, size and contact (optional)')
-    parser_list.add_argument( '--all', '-a', dest='all', action='store_true', default=False,
-        help="show all hosts (LXC and KVM)")
-    parser_list.add_argument( '--contacts', '-c', dest='contacts', action='store_true', default=False,
-        help="show the technical contact / owner of the machine")
-    parser_list.add_argument( '--snapshots', '-s', dest='listsnap', action='store_true', default=False,
-        help="list machine snapshots that can be rolled back")
-    parser_list.add_argument('hosts', action='store', default=[],  nargs='*',
-        help='hostname(s) of VM/containers (separated by space), ' +
-              '   example: prox modify host1 host2 host3')
-
-    # ***
-    parser_start = subparsers.add_parser('start', aliases=['run'], 
-        help='start the host(s)')
-    parser_start.add_argument('hosts', action='store', default=[],  nargs='*',
-        help='hostname(s) of VM/containers (separated by space), ' +
-              '   example: prox start host1 host2 host3')    
-    # ***
-    parser_stop = subparsers.add_parser('stop', aliases=['shutdown'], 
-        help='stop the host(s)')
-    parser_stop.add_argument('hosts', action='store', default=[],  nargs='*',
-        help='hostname(s) of VM/containers (separated by space), ' +
-              '   example: prox stop host1 host2 host3')
-    # ***
-    parser_destroy = subparsers.add_parser('destroy', aliases=['delete'], 
-        help='delete the hosts(s) from disk')
-    parser_destroy.add_argument('hosts', action='store', default=[],  nargs='*',
-        help='hostname(s) of VM/containers (separated by space), ' +
-              '   example: prox destroy host1 host2 host3')    
-    # ***
-    parser_modify = subparsers.add_parser('modify', aliases=['mod'], 
-        help='modify the config of one or more hosts')
-    parser_modify.add_argument('--mem', '-m', dest='mem', action='store', default='0',
-        help='Memory allocation for the machine, e.g. 4G or 512')
-    parser_modify.add_argument('--disk', '-d', dest='disk', action='store', default='0', 
-        help='disk storage allocated to the machine.')   
-    parser_modify.add_argument('--cores', '-c', dest='cores', action='store', default='0', 
-        help='Number of cores to be allocated for the machine.')        
-    parser_modify.add_argument('hosts', action='store', default=[],  nargs='*',
-        help='hostname(s) of VM/containers (separated by space), ' +
-              '   example: prox modify host1 host2 host3')
-
-    # ***
-    parser_snap = subparsers.add_parser('snap', aliases=['snapshot'], 
-        help='take a snapshot of the host')
-    parser_snap.add_argument('--description', '-d', dest='snapdesc', action='store', default='',
-        help='description of the snapshot')
-    parser_snap.add_argument('snapname', action='store', 
-        help='name of the snapshot')
-    parser_snap.add_argument('hosts', action='store', default=[],  nargs='*',
-        help='hostname(s) of VM/containers (separated by space), ' +
-              '   example: prox snap host1 host2 host3')
-
-
-    # ***
-    parser_rollback = subparsers.add_parser('rollback', aliases=['rb'], 
-        help='roll back a snapshot')
-    parser_rollback.add_argument('snapname', action='store', 
-        help='name of the snapshot')
-    parser_rollback.add_argument('hosts', action='store', default=[],  nargs='*',
-        help='hostname(s) of VM/containers (separated by space), ' +
-              '   example: prox snap host1 host2 host3')
-    
-    # ***
-    parser_new = subparsers.add_parser('new', aliases=['create'], 
-        help='create one or more new hosts')
-    parser_new.add_argument('--runlist', '-r', dest='runlist', action='store', default='', 
-        help='a local shell script file or a command to execute after install')
-    parser_new.add_argument('--mem', '-m', dest='mem', action='store', default='512',
-        help='Memory allocation for the machine, e.g. 4G or 512 Default: 512')
-    parser_new.add_argument('--disk', '-d', dest='disk', action='store', default='4', 
-        help='disk storage allocated to the machine. Default: 4')   
-    parser_new.add_argument('--cores', '-c', dest='cores', action='store', default='2', 
-        help='Number of cores to be allocated for the machine. Default: 2')           
-    parser_new.add_argument( '--store-net', '-s', dest='stornet', action='store_true', default=False,
-        help="use networked storage with backup (nfs, ceph) instead of local storage")
-    parser_new.add_argument( '--bootstrap', '-b', dest='bootstrap', action='store_true', default=False,
-        help="auto-configure the system using Chef.")
-    parser_new.add_argument( '--no-bootstrap', '-n', dest='nobootstrap', action='store_true', default=False,
-        help="do not auto-configure the system using Chef.")
-    #parser_new.add_argument('--vmid', '-v', dest='vmid', action='store', default='', 
-        #help='vmid, proxmox primary key for a container or vm')
-    #parser_new.add_argument('--image', '-i', dest='image', action='store', default='', 
-        #help='QEMU / KVM image we clone to create a new VM')
-    parser_new.add_argument('hosts', action='store', default=[],  nargs='*',
-        help='hostname(s) of VM/containers (separated by space), ' +
-              '   example: prox new host1 host2 host3')
-        
-    return parser.parse_args()
 
 if __name__ == "__main__":
-    args = parse_arguments()
     try:
         main()
     except KeyboardInterrupt:
