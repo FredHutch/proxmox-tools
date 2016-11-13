@@ -178,6 +178,8 @@ def main():
             if pwd == '':
                 return False
     loginname = user + '@' + REALM
+    if user == 'root':
+        loginname = user + '@pam'
 
     #### TESTING ###############
     #ssh_exec(user, pwd, commands=['ls -l', 'pwd', 'ps'], 'rhino1')
@@ -825,7 +827,7 @@ def run_chef_client(host):
     #print ('bootstrapping chef-client ... please wait a few minutes ... !!!')
     #cmdlist = ['dpkg -i /opt/chef/tmp/chef_amd64.deb', chefclient]
     #ssh_exec('root', pwd, cmdlist, h)
-        
+
 def check_ssh_auth(user):
     if os.path.exists('%s/.ssh/id_rsa_prox' % homedir):
         #print('%s/.ssh/id_rsa_prox does exist' % homedir)
@@ -940,7 +942,7 @@ def hostdedupe(ourmachines, hostnames):
             print('host %s already exits, removing from list' % v[1])
             hostnames.remove(v[1])
     return hostnames
-    
+
 def hostexists(hostname):
     """ is this host in DNS """
     import socket
@@ -1017,7 +1019,6 @@ def ping(hostname, timeout):
         return matches.group(1)
     else:
         return False
-
 
 def isServiceUp(host, port):
     captive_dns_addr = ""
