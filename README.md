@@ -1,34 +1,50 @@
-Proxmox helper scripts
+Proxmox tools / scripts
 ==
 
-proxhostname.py
--- 
-
-script runs inside newly deployed ProxMox VM or Container, queries promox API for correct hostname according to MAC address found on the local system and set the new hostname
-
-If you have an IPAM device (such as Infoblox) you just need to change the hostname on your Linux to have dynamic DNS get you a new IP address. This allows you to deploy many hosts within seconds
-
-tested with Ubuntu 14.04 and Ubuntu 16.04
-
-prox.py
+prox
 --
 
-prox is a command line interface to rapidly deploy VMs on proxmox from a remote host using proxmox REST API.
+prox is a command line interface to rapidly deploy LXC containers on proxmox from a remote host using proxmox REST API.
 
-prox supports a number of command line options:
+prox supports a number of sub commands and command line options:
 
 ```
-user@sphinx:~$ prox --help
-usage: prox  [-h] [--runlist RUNLIST] [--mem MEM] [--disk DISK]
-             [--cores CORES] [--storenet] [--vmid VMID] [--debug]
-             [{new,list,start,stop,modify,destroy,assist}] [hosts [hosts ...]]
+> prox --help
+usage: prox  [-h] [--debug]
+             {assist,gui,ssh,connect,list,ls,show,start,run,stop,shutdown,destroy,delete,modify,mod,snap,snapshot,rollback,rb,new,create}
+             ...
 
 a tool for deploying resources from proxmox (LXC containers or VMs)
 
 positional arguments:
-  {new,list,start,stop,modify,destroy,assist}
-                        a command to be executed. (new, list, start , stop ,
-                        modify, destroy, assist
+  {assist,gui,ssh,connect,list,ls,show,start,run,stop,shutdown,destroy,delete,modify,mod,snap,snapshot,rollback,rb,new,create}
+                        sub-command help
+    assist (gui)        navigate application via GUI (experimental)
+    ssh (connect)       connect to first host via ssh
+    list (ls, show)     list hosts(s) with status, size and contact (optional)
+    start (run)         start the host(s)
+    stop (shutdown)     stop the host(s)
+    destroy (delete)    delete the hosts(s) from disk
+    modify (mod)        modify the config of one or more hosts
+    snap (snapshot)     take a snapshot of the host
+    rollback (rb)       roll back a snapshot
+    new (create)        create one or more new hosts
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --debug, -g           verbose output for all commands
+
+```
+
+and one of the most common sub command will the 'prox new' to create a new machine:
+
+```
+> prox new --help
+usage: prox new [-h] [--runlist RUNLIST] [--mem MEM] [--disk DISK]
+                [--cores CORES] [--store-net] [--bootstrap] [--no-bootstrap]
+                [hosts [hosts ...]]
+
+positional arguments:
   hosts                 hostname(s) of VM/containers (separated by space),
                         example: prox new host1 host2 host3
 
@@ -43,13 +59,14 @@ optional arguments:
   --cores CORES, -c CORES
                         Number of cores to be allocated for the machine.
                         Default: 2
-  --storenet, -n        use network storage (nfs, ceph) instead of local
-                        storage
-  --vmid VMID, -v VMID  vmid, proxmox primary key for a container or vm
-  --debug, -g           verbose output for all commands
+  --store-net, -s       use networked storage with backup (nfs, ceph) instead
+                        of local storage
+  --bootstrap, -b       auto-configure the system using Chef.
+  --no-bootstrap, -n    do not auto-configure the system using Chef.
+
 ```
 
-let's say you want to deploy a new docker host named sausage:
+now let's say you want to deploy a new docker host named sausage:
 
 ```
 user@rhino3:~$ prox --mem 1024 --disk 8 new sausage
@@ -119,3 +136,11 @@ UPID:proxa3:000061CB:01122C2A:57EEB2C4:vzdestroy:118:user@FHCRC.ORG:
 UPID:proxa4:000061CF:01122C3B:57EEB2C4:vzdestroy:121:user@FHCRC.ORG:
 ```
 
+proxhostname.py
+-- 
+
+script runs inside newly deployed ProxMox VM or Container, queries promox API for correct hostname according to MAC address found on the local system and set the new hostname
+
+If you have an IPAM device (such as Infoblox) you just need to change the hostname on your Linux to have dynamic DNS get you a new IP address. This allows you to deploy many hosts within seconds
+
+tested with Ubuntu 14.04 and Ubuntu 16.04
