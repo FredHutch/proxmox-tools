@@ -1,10 +1,30 @@
 #! /bin/bash
 
-# add better default options to swift command 
-#caller=`basename $0`
-module load python3/3.4.3 > /dev/null 2>&1
-options=''
-cmdline="$@"
-prox.py $cmdline 
-#cmd=${cmdline/upload/""}
+# activate custom settings outside of FHCRC
+#
+#export PPROXHOST='proxmox.domain.org'
+#export PREALM='FHCRC.ORG'  # or set to 'pam' for proxmox PAM auth
+#export PLXCTEMPLATE='proxnfs:vztmpl/ubuntu-16.04-standard_16.04-1_amd64.tar.gz'
+#export PSTORLOC='proxazfs'
+#export PSTORNET='proxnfs'
+#export USERDB='https://toolbox.domain.com/json/sc_users.json'
+#export PKNIFE='knife bootstrap --no-host-key-verify ' \
+#        '--ssh-user root --ssh-identity-file %s/.ssh/id_rsa_prox ' \
+#        '--environment=scicomp-env-compute ' \
+#        '--server-url "https://chef.domain.com/organizations/myorg" ' \
+#        "--run-list 'role[base]','role[advanced]' " \
+#        '--node-name'
+        
+# you can simply put the export commands above into ~/.proxrc 
+if [[ -f ~/.proxrc ]]; then
+  source ~/.proxrc 
+fi
 
+# custom python loaded via "Environment Modules"
+if [[ -d $MODULESHOME ]]; then
+  module load python3/3.5.0 > /dev/null 2>&1
+fi
+
+# add better default options to swift command 
+cmdline="$@"
+cmdprox.py $cmdline

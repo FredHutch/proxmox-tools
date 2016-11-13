@@ -104,6 +104,7 @@ class pyproxmox:
 
         try:
             self.returned_data = self.response.json()
+            #print(self.returned_data)
             if self.response.status_code != requests.codes.ok:                   
                 if self.returned_data['data'] == None:
                     self.returned_data['data'] = self.response.status_code
@@ -303,8 +304,11 @@ class pyproxmox:
         data = self.connect('get','nodes/%s/lxc/%s/rrddata' % (node,vmid),None)
         return data
 
+    def getContainerSnapshots(self,node,vmid):
+        """Read VM RRD statistics. Returns RRD"""
+        data = self.connect('get','nodes/%s/lxc/%s/snapshot' % (node,vmid),None)
+        return data
     
-
     # KVM Methods
 
     def getVirtualIndex(self,node,vmid):
@@ -439,6 +443,17 @@ class pyproxmox:
         data = self.connect('post','nodes/%s/lxc/%s/migrate' % (node,vmid), post_data)
         return data
 
+    def snapshotLXCContainer(self,node,vmid,post_data):
+        """Snapshot the container, Returns JSON"""
+        #post_data = {'target': str(target)}
+        data = self.connect('post','nodes/%s/lxc/%s/snapshot' % (node,vmid), post_data)        
+        return data
+
+    def rollbackSnapshotLXCContainer(self,node,vmid,snapname):
+        """Rollback the snapshotted container, Returns JSON"""
+        post_data = {}
+        data = self.connect('post','nodes/%s/lxc/%s/snapshot/%s/rollback' % (node,vmid,snapname), post_data)        
+        return data
 
     # KVM Methods
 

@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
 #
-#  deploy proxmox VMs from templates
+#  Manage proxmox VMs from templates
+#  The current version focuses on LXC containers
+#
+#  KVM and gui using easygui is experimental only
 
 import sys, os, subprocess, re, platform, getpass, argparse, logging
-import time, warnings, easygui, random, json, requests, paramiko, socket
-import functools
+import time, warnings, functools, random, json, requests, paramiko, socket
+
+try:
+    import easygui
+except:
+    pass    
 
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -13,20 +20,15 @@ with warnings.catch_warnings():
 
 logging.basicConfig(level=logging.WARNING)
 
-__app__ = "Proxmox command line deployment tool"
-__version__ = '0.9'
-PROXHOST = 'proxa1.fhcrc.org'
-REALM = 'FHCRC.ORG'
-#REALM = 'pam'
-MAILDOM = 'fredhutch.org'
-LXCTEMPLATE = 'proxnfs:vztmpl/ubuntu-16.04-standard_16.04-1_amd64.tar.gz'
-STORLOC = 'proxazfs'
-STORNET = 'proxnfs'
+__app__ = 'Proxmox command line deployment tool'
+PROXHOST = os.getenv('PPROXHOST', 'proxa1.fhcrc.org')
+REALM = os.getenv('PREALM', 'FHCRC.ORG')
+LXCTEMPLATE = os.getenv('PLXCTEMPLATE', 'proxnfs:vztmpl/ubuntu-16.04-standard_16.04-1_amd64.tar.gz')
+STORLOC = os.getenv('PSTORLOC', 'proxazfs')
+STORNET = os.getenv('PSTORNET', 'proxnfs')
+USERDB = os.getenv('PUSERDB', 'https://toolbox.fhcrc.org/json/sc_users.json')
 
 homedir = os.path.expanduser("~")
-cfgdir = os.path.join(homedir, '.proxmox')
-
-j = requests.get('https://toolbox.fhcrc.org/json/sc_users.json').json()
 
 def main():
 
@@ -96,17 +98,26 @@ def main():
     hosttempl = {}
     templlist = []
     ourmachines = {}
+    oursnaps = {}
+
+    if args.subcommand in ['list', 'ls', 'show']:
+        if args.contacts or args.listsnap:
+            prn("please wait ...")
 
     for n in nodelist:
         node = n['node']
         nodes.append(node)
         # get list of containers and VMs
         conts = p.getContainers(node)['data']            
-        for c in conts:            
+        for c in conts:
             descr = ''
-            if args.subcommand in ['list', 'ls', 'show']:
+            if args.subcommand in ['list', 'ls', 'show']:                
                 if args.contacts:
-                    descr = parse_contact(p,node,c['vmid'])                    
+                    descr = parse_contact(p,node,c['vmid'])
+                if args.listsnap:
+                    shots = p.getContainerSnapshots(node,c['vmid'])['data']                    
+                    oursnaps[int(c['vmid'])] = shots
+                    
             ourmachines[int(c['vmid'])] = [c['vmid'], c[
                 'name'], c['type'], c['status'], node, int(c['maxmem'])/
                 1024/1024/1024, c['cpus'], int(c['maxdisk'])/1024/1024/1024, 
@@ -123,28 +134,43 @@ def main():
                         templlist.append(v['name'])
                     else:
                         ourmachines[int(v['vmid'])] = [v['vmid'], v[
-                            'name'], 'kvm', v['status'], node, '', '', '', '']
+                            'name'], 'kvm', v['status'], node, '', '', 0, '']
 
     # list of machine ids we want to take action on
-    vmids = None
-    if not args.subcommand in ['list', 'ls', 'show']:         
+    vmids = []
+    if args.hosts != []:
         vmids = getvmids(ourmachines, args.hosts)
 
     print('')
+    
+    # ******************************************************************
+    #getContainerSnapshots
         
     if args.subcommand in ['list', 'ls', 'show'] or (
         args.subcommand in [
-            'start',
-            'stop',
-            'destroy'] and not vmids):                
+            'start', 'stop', 'destroy', 'modify', 'mod'] and not vmids):                
         prn(' {0: <5} {1: <20} {2: <5} {3: <9} {4: <8} {5: <5} {6: <3} {7: <5} {8: <10}'.format(
             'vmid', 'name', 'type', 'status', 'node' , 'mem', 'cpu', 'disk', ''))
         prn(' {0: <5} {1: <20} {2: <5} {3: <9} {4: <8} {5: <5} {6: <3} {7: <5} {8: <10}'.format(
             '----', '--------------------', '----', '--------', '-------', '-----', '---', '-----', ''))
 
         for k, v in sorted(ourmachines.items()):
-            prn(' {0: <5} {1: <20} {2: <5} {3: <9} {4: <8} {5: <5} {6: <3} {7: <5} {8: <10}'.format(*v))
-        
+            prn(' {0: <5} {1: <20} {2: <5} {3: <9} {4: <8} {5: <5} {6: <3} {7: <5.0f} {8: <10}'.format(*v))
+            
+            if args.subcommand in ['list', 'ls', 'show']: 
+                if args.listsnap and k in oursnaps.keys():
+                    for snap in oursnaps[k]:
+                        sparent = '' 
+                        sdescription = '' 
+                        if 'parent' in snap.keys():
+                            sparent = snap['parent']
+                        if 'description' in snap.keys():
+                            sdescription = snap['description']
+                            sdescription = sdescription.replace('\n', ' ')
+                        if snap['name'] != 'current': 
+                            prn('        snapshot: {:<15}   parent: {:<15}   descr:  {:<25}    {:<10}'.format(
+                            snap['name'] , sparent, sdescription, ''))
+
     # ******************************************************************
 
     if args.subcommand in ['assist', 'gui']:
@@ -203,13 +229,11 @@ def main():
     # *********************************************************
     # setting some variables for LXC containers only    
     if args.subcommand in ['new', 'create', 'modify', 'mod', 'assist', 'gui']:    
-        if "G" in args.mem.upper():
-            lxcmem = int(re.sub("[^0-9^.]", "", args.mem))*1024
-        else:
-            lxcmem = int(re.sub("[^0-9^.]", "", args.mem))
-        lxccores = int(re.sub("[^0-9^.]", "", args.cores))
-        lxcdisk = int(re.sub("[^0-9^.]", "", args.disk))    
-            
+        lxccores = re.sub("[^0-9^.]", "", args.cores)
+        lxcdisk = int(re.sub("[^0-9^.]", "", args.disk))
+        lxcmem = int(re.sub("[^0-9^.]", "", args.mem))
+        if "G" in args.mem.upper() or lxcmem <= 64:
+            lxcmem = lxcmem*1024
     # ******************************************************************
 
     if args.subcommand in ['start', 'run']:
@@ -223,6 +247,7 @@ def main():
         start_machines(p, ourmachines, vmids, usegui=False)
 
         pingwait(ourmachines[vmids[0]][1],1)
+        
 
     # ******************************************************************
 
@@ -259,7 +284,7 @@ def main():
 
     if args.subcommand in ['modify', 'mod']:
         if not vmids:
-            vmids.append(input('\nnot found, enter vmid to modify:'))
+            vmids.append(int(input('\nnot found, enter vmid to modify:')))
             if vmids[-1] == '':
                 prn("no vmid entered", usegui)
                 return False
@@ -270,36 +295,57 @@ def main():
                 prn("currently cannot modify virtual machines.", usegui)
             else:
                 #ret = p.stopLXCContainer(machine[4], vmid)['data']
-                ret = p.getContainerConfig(machine[4], vmid)['data']
-                rootstr=ret['rootfs']
+                ccfg = p.getContainerConfig(machine[4], vmid)['data']
+                rootstr=ccfg['rootfs']
                 post_data = {}
-                post_data['cpulimit'] = lxccores
-                post_data['memory'] = lxcmem
+                post_data2 = {}
+                if ccfg['cpulimit'] != lxccores and lxccores != '0':
+                    post_data['cpulimit'] = lxccores
+                if ccfg['memory'] != lxcmem and lxcmem > 0:
+                    post_data['memory'] = lxcmem
                 if machine[3] == 'stopped':
-                    post_data['rootfs'] = re.sub(r",size=[0-9]+G", ",size=%sG" 
+                    if lxcdisk > 0:
+                        post_data['rootfs'] = re.sub(r",size=[0-9]+G", ",size=%sG" 
                                                  % lxcdisk, rootstr)
                          #volume=proxazfs:subvol-126-disk-1,size=30G
+
                 else:
                     post_data2 = {}
-                    post_data2['disk'] = 'rootfs'
-                    post_data2['size'] = '%sG' % lxcdisk
-                    ret = p.resizeLXCContainer(machine[4], vmid, 
+                    if lxcdisk > 0:
+                        post_data2['disk'] = 'rootfs'
+                        post_data2['size'] = '%sG' % lxcdisk
+                        ret = p.resizeLXCContainer(machine[4], vmid, 
                                                 post_data2)['data']
-                    print('resize:',ret)
-                ret = p.setLXCContainerOptions(machine[4], vmid, 
+                        #print('resize:',ret)
+                        if iserr(ret,400):
+                            prn ('Error 40X, could not resize disk. ' \
+                              'You may need to shutdown the machine to resize a disk', usegui)
+                        elif iserr(ret,500):
+                            prn ('Error 50X, could not resize disk', usegui)
+                        else:
+                            pass
+                            
+                if post_data != {}:
+                    
+                    ret = p.setLXCContainerOptions(machine[4], vmid, 
                                                  post_data)['data']
-                if iserr(ret,500):
-                    prn ('Error 50X, could not modify machine', usegui)
+                                                 
+                    if iserr(ret,400):
+                        prn ('Error 40X, could not set machine options', usegui)
+                    elif iserr(ret,500):
+                        prn ('Error 50X, could not set machine options', usegui)
+
+
+                if post_data != {} or post_data2 != {}:
+            
+                    ret = p.getContainerConfig(machine[4], vmid)['data']
+                    print ('Machine reconfigured. New settings '
+                           'cores: %s, mem: %s MB, rootfs: %s ' 
+                           % (ret['cpulimit'], ret['memory'], 
+                             ret['rootfs'])
+                            )
                 else:
-                    if ret == 0:
-                        ret = p.getContainerConfig(machine[4], vmid)['data']
-                        print ('Machine reconfigured. New settings '
-                               'cores: %s, mem: %s MB, rootfs: %s ' 
-                               % (ret['cpulimit'], ret['memory'], 
-                                 ret['rootfs'])
-                                )                        
-                    else:
-                        print(ret)
+                    prn('No changes made', usegui)
                 
     # ******************************************************************
 
@@ -333,11 +379,65 @@ def main():
             ret = subprocess.run("ssh-keygen -R %s,%s > /dev/null 2>&1" 
                  % (machine[1], hip), shell=True)                
                  
+
+    # ******************************************************************
+
+    if args.subcommand in ['snap', 'snapshot']:
+        if not vmids:
+            vmids.append(input('\nnot found, enter vmid to snapshot:'))
+            if vmids[-1] == '':
+                return False
+        for vmid in vmids:
+            if not int(vmid) in ourmachines:
+                prn('machine with id %s does not exist' % vmid)
+                return False
+            machine = ourmachines[vmid]
+            #if machine[3] != 'stopped':
+            #    print(
+            #    'Machine "%s" needs to be stopped before it can be destroyed!' %
+            #        machine[1])
+            #    continue
+            if machine[2] == 'kvm':
+                print('KVM machines are currently not supported')
+                continue
+            else:                
+                post_data = {
+                    'description': args.snapdesc,
+                    'snapname': args.snapname}
+                ret = p.snapshotLXCContainer(machine[4],vmid,post_data)['data']
+                print(ret)
+
+    # ******************************************************************
+
+    if args.subcommand in ['rollback', 'rb']:
+        if not vmids:
+            vmids.append(input('\nnot found, enter vmid to snapshot:'))
+            if vmids[-1] == '':
+                return False
+        for vmid in vmids:
+            if not int(vmid) in ourmachines:
+                prn('machine with id %s does not exist' % vmid)
+                return False
+            machine = ourmachines[vmid]
+            #if machine[3] != 'stopped':
+            #    print(
+            #    'Machine "%s" needs to be stopped before it can be destroyed!' %
+            #        machine[1])
+            #    continue
+            if machine[2] == 'kvm':
+                print('KVM machines are currently not supported')
+                continue
+            else:                
+                post_data = {
+                    'snapname': args.snapname}
+                ret = p.rollbackSnapshotLXCContainer(machine[4],vmid,args.snapname)['data']
+                print(ret)
+            
     # ******************************************************************
 
     if args.subcommand in ['new', 'create', 'make']:
 
-        myhosts = args.hosts
+        myhosts = hostdedupe(ourmachines, args.hosts)
         if len(myhosts) == 0:
             msg=("enter the hostname(s) you want to deploy (separated by "
                   "space, no domain name): ")
@@ -359,6 +459,8 @@ def main():
             if yn_choice(
                 "Do you want to use local storage on host (for better performance) ?") == 'n':
                 storage = STORNET
+        if args.stornet:
+            storage = STORNET
 
         newhostids = []
                 
@@ -370,6 +472,11 @@ def main():
         if uselxc:
             newcontid = 0
             for h in myhosts:
+                if hostexists(h):
+                    if not yn_choice('Host "%s" already exists in DNS. ' \
+                        'This hostname will not be used. Do you still ' \
+                        'want to continue?' % h, default='n'):
+                        return False
                 mynode = random.choice(nodes)
                 print('installing container on node "%s" !!! ' % mynode)
                 oldcontid = newcontid
@@ -446,8 +553,9 @@ def main():
             elif args.nobootstrap:
                 dobootstrap = False
             else:
-                if yn_choice("\nDo you want to install the SciComp base config (e.g. user login) ?"):
-                    dobootstrap = True
+                if os.path.exists('%s/.chef' % homedir):
+                    if yn_choice("\nDo you want to install the SciComp base config (e.g. user login) ?"):
+                        dobootstrap = True
             if dobootstrap:                    
                 loginuser=''
                 ret = easy_par(run_chef_knife, myhosts)
@@ -598,9 +706,12 @@ def run_chef_knife(host):
         print(knife)
         print('************************************')
     else:
-        print('*** executing knife command:')
-        print(knife)
-        ret = subprocess.run(knife, shell=True)
+        if os.path.exists('%s/.chef' % homedir):
+            print('*** executing knife command:')
+            print(knife)
+            ret = subprocess.run(knife, shell=True)
+        else:
+            print ('chef/knife config dir %s/.chef does not exist.' % homedir)
 
 def run_chef_client(host):
     chefclient = "chef-client --environment scicomp-env-compute " \
@@ -718,6 +829,21 @@ def getvmids(ourmachines, hostnames):
                 ids.append(int(v[0]))
     return ids
 
+def hostdedupe(ourmachines, hostnames):
+    for k, v in ourmachines.items():
+        if v[1] in hostnames:
+            print('host %s already exits, removing from list' % v[1])
+            hostnames.remove(v[1])
+    return hostnames
+    
+def hostexists(hostname):
+    """ is this host in DNS """
+    import socket
+    try:
+        ret = socket.gethostbyname(hostname)
+        return True
+    except socket.gaierror:
+        return False
 
 def pingwait(hostname, waitsec):
     print(
@@ -730,7 +856,8 @@ def pingwait(hostname, waitsec):
             break
         time.sleep(1)
     if ret == 0:
-        print('Host %s is up and running, you can now connect' % hostname)
+        print('\nHost %s is up and running, you can now connect!' % hostname)
+        print('e.g. "prox ssh %s" or "prox ssh root@%s"' % (hostname, hostname))
 
 def build_notes(user, pool, desc='testing'):
     # desc =
@@ -741,6 +868,9 @@ def build_notes(user, pool, desc='testing'):
     # sle               : business_hours=24x7 / grant_critical=no /
     #                     phi=no / pii=no / publicly_accessible=no
     # Tenancy           : default
+    if USERDB == '':
+        return ''
+    j = requests.get(USERDB).json()
     mail=jsearchone(j,'uid',user,'mail')
     division=jsearchone(j,'uid',user,'division')
     dept_manager=jsearchone(j,'uid',user,'dept_manager')
@@ -824,119 +954,6 @@ def easy_par(f, sequence):
         pool.join()
         return cleaned
 
-def send_mail(
-        to,
-        subject,
-        text,
-        attachments=[],
-        cc=[],
-        bcc=[],
-        smtphost="",
-        fromaddr=""):
-
-    if sys.version_info[0] == 2:
-        from email.MIMEMultipart import MIMEMultipart
-        from email.MIMEBase import MIMEBase
-        from email.MIMEText import MIMEText
-        from email.Utils import COMMASPACE, formatdate
-        from email import Encoders
-    else:
-        from email.mime.multipart import MIMEMultipart
-        from email.mime.base import MIMEBase
-        from email.mime.text import MIMEText
-        from email.utils import COMMASPACE, formatdate
-        from email import encoders as Encoders
-    from string import Template
-    import socket
-    import smtplib
-
-    if not isinstance(to, list):
-        print("the 'to' parameter needs to be a list")
-        return False
-    if len(to) == 0:
-        print("no 'to' email addresses")
-        return False
-
-    myhost = socket.getfqdn()
-
-    if smtphost == '':
-        smtphost = get_mx_from_email_or_fqdn(myhost)
-    if not smtphost:
-        sys.stderr.write('could not determine smtp mail host !\n')
-
-    if fromaddr == '':
-        fromaddr = os.path.basename(__file__) + '-no-reply@' + \
-            '.'.join(myhost.split(".")[-2:])  # extract domain from host
-    tc = 0
-    for t in to:
-        if '@' not in t:
-            # if no email domain given use domain from local host
-            to[tc] = t + '@' + '.'.join(myhost.split(".")[-2:])
-        tc += 1
-
-    message = MIMEMultipart()
-    message['From'] = fromaddr
-    message['To'] = COMMASPACE.join(to)
-    message['Date'] = formatdate(localtime=True)
-    message['Subject'] = subject
-    message['Cc'] = COMMASPACE.join(cc)
-    message['Bcc'] = COMMASPACE.join(bcc)
-
-    body = Template(
-        'This is a notification message from $application, running on \n' +
-        'host $host. Please review the following message:\n\n' +
-        '$notify_text\n\n')
-    host_name = socket.gethostname()
-    full_body = body.substitute(
-        host=host_name.upper(),
-        notify_text=text,
-        application=os.path.basename(__file__))
-
-    message.attach(MIMEText(full_body))
-
-    for f in attachments:
-        part = MIMEBase('application', 'octet-stream')
-        part.set_payload(open(f, 'rb').read())
-        Encoders.encode_base64(part)
-        part.add_header(
-            'Content-Disposition',
-            'attachment; filename="%s"' %
-            os.path.basename(f))
-        message.attach(part)
-
-    addresses = []
-    for x in to:
-        addresses.append(x)
-    for x in cc:
-        addresses.append(x)
-    for x in bcc:
-        addresses.append(x)
-
-    smtp = smtplib.SMTP(smtphost)
-    smtp.sendmail(fromaddr, addresses, message.as_string())
-    smtp.close()
-
-    return True
-
-
-class Settings(easygui.EgStore):
-
-    def __init__(self, filename):  # filename is required
-        #-------------------------------------------------
-        # Specify default/initial values for variables that
-        # this particular application wants to remember.
-        #-------------------------------------------------
-        self.userId = ""
-        self.targetServer = ""
-
-        #-------------------------------------------------
-        # For subclasses of EgStore, these must be
-        # the last two statements in  __init__
-        #-------------------------------------------------
-        self.filename = filename  # this is required
-        self.restore()            # restore values from the storage file if possible
-
-
 def parse_arguments():
     """
     Gather command-line arguments.
@@ -967,6 +984,11 @@ def parse_arguments():
         help="show all hosts (LXC and KVM)")
     parser_list.add_argument( '--contacts', '-c', dest='contacts', action='store_true', default=False,
         help="show the technical contact / owner of the machine")
+    parser_list.add_argument( '--snapshots', '-s', dest='listsnap', action='store_true', default=False,
+        help="list machine snapshots that can be rolled back")
+    parser_list.add_argument('hosts', action='store', default=[],  nargs='*',
+        help='hostname(s) of VM/containers (separated by space), ' +
+              '   example: prox modify host1 host2 host3')
 
     # ***
     parser_start = subparsers.add_parser('start', aliases=['run'], 
@@ -979,7 +1001,7 @@ def parse_arguments():
         help='stop the host(s)')
     parser_stop.add_argument('hosts', action='store', default=[],  nargs='*',
         help='hostname(s) of VM/containers (separated by space), ' +
-              '   example: prox stop host1 host2 host3')    
+              '   example: prox stop host1 host2 host3')
     # ***
     parser_destroy = subparsers.add_parser('destroy', aliases=['delete'], 
         help='delete the hosts(s) from disk')
@@ -989,15 +1011,37 @@ def parse_arguments():
     # ***
     parser_modify = subparsers.add_parser('modify', aliases=['mod'], 
         help='modify the config of one or more hosts')
-    parser_modify.add_argument('--mem', '-m', dest='mem', action='store', default='512',
-        help='Memory allocation for the machine, e.g. 4G or 512 Default: 512')
-    parser_modify.add_argument('--disk', '-d', dest='disk', action='store', default='4', 
-        help='disk storage allocated to the machine. Default: 4')   
-    parser_modify.add_argument('--cores', '-c', dest='cores', action='store', default='2', 
-        help='Number of cores to be allocated for the machine. Default: 2')        
+    parser_modify.add_argument('--mem', '-m', dest='mem', action='store', default='0',
+        help='Memory allocation for the machine, e.g. 4G or 512')
+    parser_modify.add_argument('--disk', '-d', dest='disk', action='store', default='0', 
+        help='disk storage allocated to the machine.')   
+    parser_modify.add_argument('--cores', '-c', dest='cores', action='store', default='0', 
+        help='Number of cores to be allocated for the machine.')        
     parser_modify.add_argument('hosts', action='store', default=[],  nargs='*',
         help='hostname(s) of VM/containers (separated by space), ' +
               '   example: prox modify host1 host2 host3')
+
+    # ***
+    parser_snap = subparsers.add_parser('snap', aliases=['snapshot'], 
+        help='take a snapshot of the host')
+    parser_snap.add_argument('--description', '-d', dest='snapdesc', action='store', default='',
+        help='description of the snapshot')
+    parser_snap.add_argument('snapname', action='store', 
+        help='name of the snapshot')
+    parser_snap.add_argument('hosts', action='store', default=[],  nargs='*',
+        help='hostname(s) of VM/containers (separated by space), ' +
+              '   example: prox snap host1 host2 host3')
+
+
+    # ***
+    parser_rollback = subparsers.add_parser('rollback', aliases=['rb'], 
+        help='roll back a snapshot')
+    parser_rollback.add_argument('snapname', action='store', 
+        help='name of the snapshot')
+    parser_rollback.add_argument('hosts', action='store', default=[],  nargs='*',
+        help='hostname(s) of VM/containers (separated by space), ' +
+              '   example: prox snap host1 host2 host3')
+    
     # ***
     parser_new = subparsers.add_parser('new', aliases=['create'], 
         help='create one or more new hosts')
@@ -1009,8 +1053,8 @@ def parse_arguments():
         help='disk storage allocated to the machine. Default: 4')   
     parser_new.add_argument('--cores', '-c', dest='cores', action='store', default='2', 
         help='Number of cores to be allocated for the machine. Default: 2')           
-    parser_new.add_argument( '--storenet', '-s', dest='stornet', action='store_true', default=False,
-        help="use network storage (nfs, ceph) instead of local storage")
+    parser_new.add_argument( '--store-net', '-s', dest='stornet', action='store_true', default=False,
+        help="use networked storage with backup (nfs, ceph) instead of local storage")
     parser_new.add_argument( '--bootstrap', '-b', dest='bootstrap', action='store_true', default=False,
         help="auto-configure the system using Chef.")
     parser_new.add_argument( '--no-bootstrap', '-n', dest='nobootstrap', action='store_true', default=False,
