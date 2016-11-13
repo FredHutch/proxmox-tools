@@ -1,6 +1,6 @@
 from setuptools import setup
 
-__version__ = "0.9.5"
+__version__ = "0.9.6"
 
 #try:
 #    from pypandoc import convert
@@ -37,7 +37,7 @@ CLASSIFIERS = [
 ]
 
 setup(
-    name='prox',
+    name='proxmox-tools',
     version=__version__,
     description='''\
 prox is a command line interface to rapidly deploy LXC containers on proxmox from a remote host using proxmox REST API

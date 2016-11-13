@@ -16,7 +16,10 @@ except:
 
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=DeprecationWarning)
-    from .pyproxmox import *
+    try:
+        from .pyproxmox import *
+    except:
+        from pyproxmox import *
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -659,13 +662,18 @@ def main():
                 dobootstrap = True
             elif args.nobootstrap:
                 dobootstrap = False
-            else:
-                if os.path.exists('%s/.chef' % homedir):
-                    if yn_choice("\nDo you want to install the SciComp base config (e.g. user login) ?"):
-                        dobootstrap = True
+            else: 
+                if yn_choice("\nDo you want to install the SciComp base config (e.g. user login) ?"):
+                    dobootstrap = True
             if dobootstrap:
                 loginuser=''
-                ret = easy_par(run_chef_knife, myhosts)
+                if os.path.exists('%s/.chef' % homedir):
+                    ret = easy_par(run_chef_knife, myhosts)
+                else:
+                    func = functools.partial(run_chef_client, pwd)
+                    ret = easy_par(func, myhosts)                    
+                    #run_chef_client(host, pwd):
+
                 # bootstrapping for user
                 if idrsapub != '':
                     for h in myhosts:
@@ -820,13 +828,13 @@ def run_chef_knife(host):
         else:
             print ('chef/knife config dir %s/.chef does not exist.' % homedir)
 
-def run_chef_client(host):
+def run_chef_client(pwd, host):
     chefclient = "chef-client --environment scicomp-env-compute " \
         "--validation_key /root/.chef/cit-validator.pem " \
         "--runlist role[cit-base],role[scicomp-base] "
-    #print ('bootstrapping chef-client ... please wait a few minutes ... !!!')
-    #cmdlist = ['dpkg -i /opt/chef/tmp/chef_amd64.deb', chefclient]
-    #ssh_exec('root', pwd, cmdlist, h)
+    print ('\nbootstrapping chef-client configs on %s ... please wait a few minutes ... !!!\n' % host)
+    cmdlist = ['dpkg -i /opt/chef/tmp/chef_amd64.deb', chefclient]
+    ssh_exec('root', pwd, cmdlist, host)
 
 def check_ssh_auth(user):
     if os.path.exists('%s/.ssh/id_rsa_prox' % homedir):
@@ -961,7 +969,7 @@ def pingwait(hostname, waitsec):
         if ret in [
                 0, 2]:  # 2=ctrl+c, 256=unreachable, 512=unknown host, not in DNS
             break
-        time.sleep(1)
+        time.sleep(0.3)
     if ret == 0:
         print('\nHost %s is up and running, you can now connect!' % hostname)
         print('e.g. "prox ssh %s" or "prox ssh root@%s"' % (hostname, hostname))
