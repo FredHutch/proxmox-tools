@@ -39,9 +39,7 @@ CLASSIFIERS = [
 setup(
     name='proxmox-tools',
     version=__version__,
-    description='''\
-prox is a command line interface to rapidly deploy LXC containers on proxmox from a remote host using proxmox REST API
-    ''',
+    description='prox is a command line interface to rapidly deploy LXC containers on proxmox from a remote host using proxmox REST API',
     long_description=open('README.rst', 'r').read(),
     packages=['prox'],
     scripts=['prox/prox'],
