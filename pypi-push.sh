@@ -1,7 +1,7 @@
 #! /bin/bash
 
-printf "   loading module python3/3.5.0\n"
-module load python3/3.5.0 > /dev/null 2>&1
+printf "   loading module Python 3.6\n"
+ml Python > /dev/null 2>&1
 
 version=$(grep ^__version__ setup.py | cut -d'"' -f2)
 
