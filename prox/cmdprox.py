@@ -30,6 +30,7 @@ LXCTEMPLATE = os.getenv('PLXCTEMPLATE', 'proxnfs:vztmpl/ubuntu-16.04-standard_16
 STORLOC = os.getenv('PSTORLOC', 'proxazfs')
 STORNET = os.getenv('PSTORNET', 'proxnfs')
 USERDB = os.getenv('PUSERDB', 'https://toolbox.fhcrc.org/json/sc_users.json')
+EXCLUDEHOSTS = ['proxa5', 'proxa6']
 
 homedir = os.path.expanduser("~")
 
@@ -123,6 +124,8 @@ def parse_arguments():
         help='create one or more new hosts')
     parser_new.add_argument('--runlist', '-r', dest='runlist', action='store', default='', 
         help='a local shell script file or a command to execute after install')
+    parser_new.add_argument('--node', '-N', dest='node', action='store', default='', 
+        help='Hostname of Proxmox node that will be used for install')           
     parser_new.add_argument('--mem', '-m', dest='mem', action='store', default='512',
         help='Memory allocation for the machine, e.g. 4G or 512 Default: 512')
     parser_new.add_argument('--disk', '-d', dest='disk', action='store', default='4', 
@@ -221,7 +224,11 @@ def main():
 
     for n in nodelist:
         node = n['node']
-        nodes.append(node)
+        #if not checknode(node):
+        if node in EXCLUDEHOSTS:
+            continue
+        #print(node)
+        nodes.append(node)            
         # get list of containers and VMs
         conts = p.getContainers(node)['data']
         for c in conts:
@@ -244,12 +251,14 @@ def main():
                     # get VM templates
                     # if v['name'].startswith('templ') or
                     # v['name'].endswith('template'): # check for vm names
+                    if args.contacts:
+                        descr = parse_contact_vm(p,node,v['vmid'])
                     if v['template'] == 1:
                         hosttempl[v['name']] = [node, v['vmid']]
                         templlist.append(v['name'])
                     else:
                         ourmachines[int(v['vmid'])] = [v['vmid'], v[
-                            'name'], 'kvm', v['status'], node, '', '', 0, '']
+                            'name'], 'kvm', v['status'], node, '', '', 0, descr]
 
     # list of machine ids we want to take action on
     vmids = []
@@ -268,10 +277,11 @@ def main():
             'vmid', 'name', 'type', 'status', 'node' , 'mem', 'cpu', 'disk', ''))
         prn(' {0: <5} {1: <20} {2: <5} {3: <9} {4: <8} {5: <5} {6: <3} {7: <5} {8: <10}'.format(
             '----', '--------------------', '----', '--------', '-------', '-----', '---', '-----', ''))
-
+        
+        recip = []
         for k, v in sorted(ourmachines.items()):
-            prn(' {0: <5} {1: <20} {2: <5} {3: <9} {4: <8} {5: <5} {6: <3} {7: <5.0f} {8: <10}'.format(*v))
-
+            prn(' {0: <5} {1: <20.20} {2: <5} {3: <9} {4: <8} {5: <5} {6: <3} {7: <5.0f} {8: <10}'.format(*v))
+            recip.append(v[-1])
             if args.subcommand in ['list', 'ls', 'show']: 
                 if args.listsnap and k in oursnaps.keys():
                     for snap in oursnaps[k]:
@@ -285,6 +295,10 @@ def main():
                         if snap['name'] != 'current': 
                             prn('        snapshot: {:<15}   parent: {:<15}   descr:  {:<25}    {:<10}'.format(
                             snap['name'] , sparent, sdescription, ''))
+        if args.subcommand in ['list', 'ls', 'show']:
+            if args.contacts:
+                recip =  filter(None,uniq(recip))
+                prn("\nContact list: " + '; '.join(recip))
 
     # ******************************************************************
 
@@ -587,7 +601,10 @@ def main():
                         'This hostname will not be used. Do you still ' \
                         'want to continue?' % h, default='n'):
                         return False
-                mynode = random.choice(nodes)
+                if args.node == '':
+                    mynode = random.choice(nodes)
+                else:
+                    mynode = args.node
                 print('installing container on node "%s" !!! ' % mynode)
                 oldcontid = newcontid
                 for i in range(10):
@@ -755,6 +772,15 @@ def parse_contact(p,node,vmid):
             found = m.group(1)
     return found
 
+def parse_contact_vm(p,node,vmid):    
+    found = ''
+    cfg = p.getVirtualConfig(node,vmid)['data']
+    if 'description' in cfg.keys() :
+        m = re.search('technical_contact: (.+?)@', cfg['description'])
+        if m:
+            found = m.group(1)
+    return found
+
 def start_machines(p, ourmachines, vmids, usegui=False):
     """ p = proxmox session, ourmachines= full dictionary of machines
         vmids = list of machine-id we want to start
@@ -763,6 +789,7 @@ def start_machines(p, ourmachines, vmids, usegui=False):
     for vmid in vmids:
         machine = ourmachines[vmid]
         ret = None
+        sleeptime = 1
         if machine[3] == 'running':
             prn('Machine "%s" is already running!' % machine[1], usegui)
             continue
@@ -771,7 +798,7 @@ def start_machines(p, ourmachines, vmids, usegui=False):
             ret = p.startVirtualMachine(machine[4], vmid)['data']
             print('...%s' % ret)
             for i in range(25):
-                time.sleep(1)
+                time.sleep(sleeptime)
                 ret = p.getVirtualStatus(machine[4], vmid)['data']
                 print('Machine {0: <4}: {1}, cpu: {2:.0%} '.format(
                         vmid, ret['status'], ret['cpu']))
@@ -785,14 +812,17 @@ def start_machines(p, ourmachines, vmids, usegui=False):
                 if isinstance(ret, str):
                     print('    ...%s' % ret)
                     break
-                time.sleep(1)
+                time.sleep(sleeptime)
+                sleeptime+=1
                 print('starting host %s, re-try %s' % (vmid, i))
             if not isinstance(ret, str):
                 print("Failed starting host id %s !" % vmid)
                 continue
 
+            sleeptime = 1
             for i in range(15):
-                time.sleep(1)
+                time.sleep(sleeptime)
+                sleeptime+=1
                 ret = p.getContainerStatus(machine[4], vmid)['data']
                 if not isinstance(ret, int):
                     prn(
@@ -1004,7 +1034,12 @@ def jsearchone(json,sfld,search,rfld):
     """ return the first search result of a column based search """
     for j in json:
         if j[sfld]==search:
-            return j[rfld].strip()
+            try:
+                element = j[rfld].strip()
+            except:
+                element = ""
+
+            return element 
 
 def uniq(seq):
     # Not order preserving
@@ -1027,6 +1062,19 @@ def ping(hostname, timeout):
         return matches.group(1)
     else:
         return False
+
+
+def checknode(node):
+    try:
+        socket.gethostbyname(node)
+    except socket.error:
+        return False    
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    result = sock.connect_ex((node,8006))
+    if result == 0:       
+       return True
+    else:
+       return False
 
 def isServiceUp(host, port):
     captive_dns_addr = ""
