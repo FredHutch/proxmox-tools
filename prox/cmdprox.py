@@ -24,13 +24,14 @@ with warnings.catch_warnings():
 logging.basicConfig(level=logging.WARNING)
 
 __app__ = 'Proxmox command line deployment tool'
-PROXHOST = os.getenv('PPROXHOST', 'proxa1.fhcrc.org')
+PROXHOST = os.getenv('PPROXHOST', 'proxa3.fhcrc.org')
 REALM = os.getenv('PREALM', 'FHCRC.ORG')
 LXCTEMPLATE = os.getenv('PLXCTEMPLATE', 'proxnfs:vztmpl/ubuntu-16.04-standard_16.04-1_amd64.tar.gz')
 STORLOC = os.getenv('PSTORLOC', 'proxazfs')
 STORNET = os.getenv('PSTORNET', 'proxnfs')
 USERDB = os.getenv('PUSERDB', 'https://toolbox.fhcrc.org/json/sc_users.json')
-EXCLUDEHOSTS = ['proxa5', 'proxa6']
+EXCLUDEHOSTS = ['proxa5', 'proxa1', 'proxa2', 'proxa4']
+CHEFVERSION = '12.19.36'
 
 homedir = os.path.expanduser("~")
 
@@ -132,6 +133,8 @@ def parse_arguments():
         help='disk storage allocated to the machine. Default: 4')   
     parser_new.add_argument('--cores', '-c', dest='cores', action='store', default='2', 
         help='Number of cores to be allocated for the machine. Default: 2')           
+    parser_new.add_argument('--ubuntu', '-u', dest='ubuntu', action='store', default='',
+        help='Ubuntu version: 16.04, 17.10 or 18.04')
     parser_new.add_argument( '--store-net', '-s', dest='stornet', action='store_true', default=False,
         help="use networked storage with backup (nfs, ceph) instead of local storage")
     parser_new.add_argument( '--bootstrap', '-b', dest='bootstrap', action='store_true', default=False,
@@ -230,7 +233,10 @@ def main():
         #print(node)
         nodes.append(node)            
         # get list of containers and VMs
-        conts = p.getContainers(node)['data']
+        try:
+            conts = p.getContainers(node)['data']
+        except:
+            continue
         for c in conts:
             descr = ''
             if args.subcommand in ['list', 'ls', 'show']:
@@ -616,6 +622,13 @@ def main():
                     'creating host %s with ID %s in pool %s' %
                     (h, newcontid, pool))
 
+                if args.ubuntu == '16.04':
+                    LXCTEMPLATE = 'proxnfs:vztmpl/ubuntu-16.04-standard_16.04-1_amd64.tar.gz'
+                elif args.ubuntu == '17.10':
+                    LXCTEMPLATE = 'proxnfs:vztmpl/ubuntu-17.10-standard_17.10-1_amd64.tar.gz'
+                elif args.ubuntu == '18.04':
+                    LXCTEMPLATE = 'proxnfs:vztmpl/ubuntu-18.04-standard_18.04-1_amd64.tar.gz'
+
                 post_data = {
                     'ostemplate': LXCTEMPLATE,
                     'cpulimit': lxccores,
@@ -840,11 +853,12 @@ def start_machines(p, ourmachines, vmids, usegui=False):
 def run_chef_knife(host):
     knife = "knife bootstrap --no-host-key-verify " \
         "--ssh-user root --ssh-identity-file %s/.ssh/id_rsa_prox " \
-        "--environment=scicomp-env-compute " \
+        "--environment scicomp-env-compute " \
+        "--bootstrap-version %s " \
         '--server-url "https://chef.fhcrc.org/organizations/cit" ' \
         "--run-list 'role[cit-base]','role[scicomp-base]' " \
         "--node-name %s " \
-        "%s" % (homedir,host,host)
+        "%s" % (homedir,CHEFVERSION,host,host)
     if host == 'hostname': 
         print('you can also execute this knife command manually:')
         print('************************************')

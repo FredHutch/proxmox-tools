@@ -16,13 +16,22 @@
 #        '--node-name'
         
 # you can simply put the export commands above into ~/.proxrc 
-if [[ -f ~/.proxrc ]]; then
+if [ -f ~/.proxrc ]; then
   source ~/.proxrc 
 fi
 
 # custom python loaded via "Environment Modules"
-if [[ -d $MODULESHOME ]]; then
-  module load python3/3.5.0 > /dev/null 2>&1
+if [ -d $MODULESHOME ]; then
+  if ! hash module 2>/dev/null; then
+    if [ "$SHELL"=="/bin/bash" ]; then
+      source $MODULESHOME/init/zsh
+    elif [ "$SHELL"=="/usr/bin/zsh" ]; then
+      source $MODULESHOME/init/zsh
+    elif [ "$SHELL"=="/usr/bin/tcsh" ]; then
+      source $MODULESHOME/init/tsch 
+    fi
+  fi  
+  module load Python/3.6.3-foss-2016b-fh1 
 fi
 
 # add better default options to swift command 
