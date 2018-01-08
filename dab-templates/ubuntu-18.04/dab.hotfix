@@ -1,0 +1,582 @@
+#!/usr/bin/perl -w
+
+use strict;
+use Getopt::Long;
+use PVE::DAB;
+use File::NCopy;
+
+
+$ENV{'LC_ALL'} = 'C';
+
+sub print_usage {
+    my ($msg) = @_;
+
+    if ($msg) {
+	print STDERR "ERROR: $msg\n";
+    }
+    print STDERR "dab <command> [parameters]\n";
+}
+
+
+if (scalar (@ARGV) == 0) {
+    print_usage ();
+    exit (-1);
+}
+
+my $cmdline = join (' ', @ARGV);
+
+my $cmd = shift @ARGV;
+
+if (!$cmd) {
+    print_usage("no command specified");
+    exit (-1);
+}
+
+my $dab = PVE::DAB->new();
+
+$dab->writelog ("dab: $cmdline\n");
+
+$SIG{INT} = $SIG{TERM} = $SIG{QUIT} = $SIG{HUP} = sub {
+    die "interrupted by signal\n";
+};
+
+eval {
+
+    if ($cmd eq 'init') {
+
+	die "command '$cmd' expects no arguments.\n" if scalar (@ARGV) != 0;
+
+	$dab->initialize();
+
+    } elsif ($cmd eq 'bootstrap') {
+
+	my $opts = {};
+
+	if (!GetOptions ($opts, 'exim', 'minimal')) {
+	    print_usage ();
+	    exit (-1);
+	}
+
+	die "command 'bootstrap' expects no arguments.\n" if scalar (@ARGV) != 0;
+
+	$dab->ve_init();
+        
+        my $source_dir  = 'rootfs-cp';
+        my $target_dir  = 'rootfs';
+        my $cp = File::NCopy->new(recursive => 1);
+        $cp->copy("$source_dir/*", $target_dir) 
+                   or die "Could not perform rcopy of $source_dir to $target_dir: $!"; 
+
+	$dab->bootstrap ($opts);
+
+    } elsif ($cmd eq 'finalize') {
+
+	my $opts = {};
+
+	if (!GetOptions ($opts, 'keepmycnf')) {
+	    print_usage ();
+	    exit (-1);
+	}
+
+	die "command '$cmd' expects no arguments.\n" if scalar (@ARGV) != 0;
+
+	$dab->finalize($opts);
+
+    } elsif ($cmd eq 'veid') {
+
+	die "command '$cmd' expects no arguments.\n" if scalar (@ARGV) != 0;
+
+	print $dab->{veid} . "\n";
+
+    } elsif ($cmd eq 'basedir') {
+
+	die "command '$cmd' expects no arguments.\n" if scalar (@ARGV) != 0;
+
+	print $dab->{rootfs} . "\n";
+
+    } elsif ($cmd eq 'packagefile') {
+
+	die "command '$cmd' expects no arguments.\n" if scalar (@ARGV) != 0;
+
+	print "$dab->{targetname}.tar.gz\n";
+
+    } elsif ($cmd eq 'list') {
+
+	my $verbose;
+
+	if (!GetOptions ('verbose' =>\$verbose)) {
+	    print_usage ();
+	    exit (-1);
+	}
+
+	die "command '$cmd' expects no arguments.\n" if scalar (@ARGV) != 0;
+
+	my $instpkgs = $dab->read_installed ();
+
+	foreach my $pkg (sort keys %$instpkgs) {
+	    if ($verbose) {
+		my $version = $instpkgs->{$pkg}->{version};
+		print "$pkg $version\n";
+	    } else {
+		print "$pkg\n";
+	    }
+	}
+
+    } elsif ($cmd eq 'task') {
+	
+	my $task = shift @ARGV;
+
+	if (!$task) {
+	    print_usage ("no task specified");
+	    exit (-1);
+	}
+
+	my $opts = {};
+    
+	if ($task eq 'mysql') {
+
+	    if (!GetOptions ($opts, 'password=s', 'start')) {
+		print_usage ();
+		exit (-1);
+	    }
+
+	    die "task '$task' expects no arguments.\n" if scalar (@ARGV) != 0;
+
+	    $dab->task_mysql ($opts);
+    
+	} elsif ($task eq 'postgres') {
+
+	    if (!GetOptions ($opts, 'version=s', 'start')) {
+		print_usage ();
+		exit (-1);
+	    }
+
+	    die "task '$task' expects no arguments.\n" if scalar (@ARGV) != 0;
+
+	    $dab->task_postgres ($opts);
+
+	} elsif ($task eq 'php') {
+
+	    if (!GetOptions ($opts, 'memlimit=i')) {
+		print_usage ();
+		exit (-1);
+	    }
+
+	    die "task '$task' expects no arguments.\n" if scalar (@ARGV) != 0;
+
+	    $dab->task_php ($opts);
+    
+	} else {
+	
+	    print_usage ("unknown task '$task'");
+	    exit (-1);
+
+	}
+
+    } elsif ($cmd eq 'install' || $cmd eq 'unpack') {
+
+	my $required;
+	foreach my $arg (@ARGV) {
+	    if ($arg =~ m/\.pkglist$/) {
+		open (TMP, $arg) ||
+		    die "cant open package list '$arg' - $!";
+		while (defined (my $line = <TMP>)) {
+		    chomp $line;
+		    next if $line =~ m/^\s*$/;
+		    next if $line =~ m/\#/;
+		    if ($line =~ m/^\s*(\S+)\s*$/) {
+			push @$required, $1;
+		    } else {
+			die "invalid package name in '$arg' - $line\n";
+		    }
+		}
+	    } else {
+		push @$required, $arg;
+	    }
+
+	    close (TMP);
+	}
+
+	$dab->install ($required, $cmd eq 'unpack');
+
+    } elsif ($cmd eq 'exec') {
+
+	$dab->ve_exec (@ARGV);
+
+    } elsif ($cmd eq 'enter') {
+
+	die "command '$cmd' expects no arguments.\n" if scalar (@ARGV) != 0;
+
+	$dab->enter();
+
+    } elsif ($cmd eq 'clean') {
+
+	die "command '$cmd' expects no arguments.\n" if scalar (@ARGV) != 0;
+
+	$dab->cleanup (0);
+
+    } elsif ($cmd eq 'dist-clean') {
+
+	die "command '$cmd' expects no arguments.\n" if scalar (@ARGV) != 0;
+
+	$dab->cleanup (1);
+
+    } else {
+	print_usage ("invalid command '$cmd'");
+	exit (-1);
+    }
+
+};
+
+if (my $err = $@) {
+    $dab->logmsg ($@);
+    die ($@);
+}
+
+exit 0;
+
+__END__
+
+=head1 NAME
+                                          
+dab - Debian LXC Appliance Builder
+
+=head1 SYNOPSIS
+
+=over
+
+=item B<dab> I<command> I<[OPTIONS]>
+
+=item B<dab init>
+
+Downloads the package descriptions form the 
+repository. Also truncates the C<logfile>.
+
+=item B<dab bootstrap>
+
+Bootstrap a debian system and allocate a 
+temporary container (we use IDs 90000 and above).
+
+=over
+ 
+=item I<--exim>
+
+Use exim as MTA (we use postfix by default)
+
+=item I<--minimal>
+
+Do not install standard packages.
+
+=back
+
+=item B<dab veid>
+
+Print used container ID.
+
+=item B<dab basedir>
+
+Print container private directory.
+
+=item B<dab packagefile>
+
+Print the appliance file name.
+
+=item B<dab install I<pkg ...>>
+
+Install one or more packages. I<pkg> can also refer to a file named
+C<xyz.pkglist> which contains a list of packages. All dependencies
+are automatically installed.
+
+=item B<dab unpack I<pkg ...>>
+
+Unpack one or more packages. I<pkg> can also refer to a file named
+C<xyz.pkglist> which contains a list of packages. All dependencies
+are automatically unpacked.
+
+=item B<dab exec I<CMD> I<ARGS>>
+
+Executes command CMD inside the container.
+
+=item B<dab enter>
+
+Calls C<lxc-attach> - this is for debugging only.
+
+=item B<dab task mysql>
+
+Install a mysql database server. During appliance generation we use
+C<admin> as mysql root password (also stored in /root/.my.cnf).
+
+=over
+
+=item I<--password=XXX>
+
+Specify the mysql root password. The special value C<random> can be
+use to generate a random root password when the appliance is started
+first time (stored in /root/.my.cnf)
+
+=item I<--start>
+
+Start the mysql server (if you want to execute sql commands during
+appliance generation).
+
+=back
+
+=item B<dab task postgres>
+
+Install a postgres database server.
+
+=over
+
+=item I<--version=XXX>
+
+Select Postgres version. Posible values are C<7.4>, C<8.1> and C<8.3>
+(depends on the selected suite).
+
+=item I<--start>
+
+Start the postgres server (if you want to execute sql commands during
+appliance generation).
+
+=back
+
+=item B<dab task php>
+
+Install php5.
+
+=over
+
+=item I<--memlimit=i>
+
+Set the php I<memory_limit>.
+
+=back
+
+=item B<dab finalize>
+
+Cleanup everything inside the container and generate the final
+appliance package.
+
+=over
+
+=item I<--keepmycnf>
+
+Do not delete file C</root/.my.cfg> (mysql).
+
+=back
+
+=item B<dab list>
+
+List installed packages.
+          
+=over
+
+=item I<--verbose>
+
+Also print package versions.
+
+=back
+
+=item B<dab clean>
+
+Remove all temporary files and destroy the container.
+
+=item B<dab dist-clean>
+
+Like clean, but also removes the package cache (except when you
+specified your own cache directory in the config file)
+
+=back
+
+=head1 DESCRIPTION
+
+dab is a script to automate the creation of LXC appliances. It is
+basically a rewrite of debootstrap in perl, but uses LXC instead of
+chroot and generates LXC templates. Another difference is that it
+supports multi-stage building of templates. That way you can execute
+arbitrary scripts between to accomplish what you want.
+
+Furthermore some common tasks are fully automated, like setting up a
+database server (mysql or postgres).
+
+To accomplish minimal template creation time, packages are cached to a
+local directory, so you do not need a local debian mirror (although
+this would speed up the first run).
+
+See http://pve.proxmox.com/wiki/Debian_Appliance_Builder for examples.
+
+This script need to be run as root, so it is not recommended to start
+it on a production machine with running containers. So many people run
+Proxmox VE inside a KVM or VMWare 64bit virtual machine to build
+appliances.
+
+All generated templates includes an appliance description file. Those
+can be used to build appliance repositories.
+
+=head1 CONFIGURATION
+
+Configuration is read from the file C<dab.conf> inside the current working
+directory. The files contains key value pairs, separated by colon.
+
+=over 2
+
+=item B<Suite:> I<squeeze|wheezy|jessie|trusty|vivid>
+
+The Debian or Ubuntu suite.
+
+=item B<Source:> I<URL [components]>
+
+Defines a source location. By default we use the following for debian:
+
+ Source: http://ftp.debian.org/debian SUITE main contrib
+ Source: http://security.debian.org SUITE/updates main contrib
+
+Note: SUITE is a variable and will be substituted.
+
+There are also reasonable defaults for Ubuntu. If you do not specify 
+any source the defaults are used.
+
+=item B<Depends:> I<dependencies>
+
+Debian like package dependencies. This can be used to make sure that
+speific package versions are available.
+
+=item B<CacheDir>: I<path>
+
+Allows you to specify the directory where downloaded packages are
+cached.
+
+=item B<Mirror:> I<SRCURL> => I<DSTURL>
+
+Define a mirror location. for example:
+
+ Mirror: http://ftp.debian.org/debian => ftp://mirror/debian
+
+=back
+
+All other settings in this files are also included into the appliance
+description file.
+
+=over 2
+
+=item B<Name:> I<name>
+
+The name of the appliance. 
+
+Appliance names must consist only of lower case letters (a-z), digits
+(0-9), plus (+) and minus (-) signs, and periods (.). They must be at
+least two characters long and must start with an alphanumeric
+character.
+
+=item B<Architecture:> I<i386|amd64>
+
+Target architecture.
+
+=item B<Version:> I<upstream_version[-build_revision]> 
+
+The version number of an appliance.
+
+=item: B<Section:> I<section>
+
+This field specifies an application area into which the appliance has
+been classified. Currently we use the following section names: system,
+admin, www
+
+=item B<Maintainer:> I<name <email>>
+
+The appliance maintainer's name and email address. The name should
+come first, then the email address inside angle brackets <> (in RFC822
+format).
+
+=item B<Infopage:> I<URL>
+
+Link to web page containing more informations about this appliance.
+
+=item B<Description:> I<single line synopsis>
+
+ extended description over several lines (indended by space) may follow.
+
+=back
+
+=head1 Appliance description file
+
+All generated templates includes an appliance description file called
+
+ /etc/appliance.info
+
+this is the first file inside the tar archive. That way it can be
+easily exctracted without scanning the whole archive. The file itself
+contains informations like a debian C<control> file. It can be used to
+build appliance repositories.
+
+Most fields are directly copied from the configuration file C<dab.conf>.
+
+Additionally there are some auto-generated files:
+
+=over
+
+=item B<Installed-Size:> I<bytes>
+
+It gives the total amount of disk space required to install the named
+appliance. The disk space is represented in megabytes as a simple
+decimal number.
+
+=item B<Type:> I<type>
+
+This is always C<lxc>.
+
+=item B<OS:> I<[debian-4.0|debian-5.0|ubuntu-8.0]>
+
+Operation system.
+
+=back
+
+Appliance repositories usually add additional fields:
+
+=over
+
+=item B<md5sum:> I<md5sum>
+
+MD5 checksum
+
+=back
+
+=head1 FILES
+
+The following files are created inside your working directory:
+
+ dab.conf          appliance configuration file
+
+ logfile           contains installation logs
+
+ .veid             stores the used container ID
+
+ cache/*           default package cache directory
+
+ info/*            package information cache
+ 
+=head1 AUTHOR
+
+Dietmar Maurer <dietmar@proxmox.com>
+
+Many thanks to Proxmox Server Solutions (www.proxmox.com) for sponsoring 
+this work.
+
+=head1 COPYRIGHT AND DISCLAIMER
+
+Copyright (C) 2007-2012 Proxmox Server Solutions GmbH
+
+Copyright: dab is under GNU GPL, the GNU General Public License.
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; version 2 dated June, 1991.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the
+Free Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston,
+MA 02110-1301, USA.
