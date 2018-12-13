@@ -10,7 +10,7 @@ git add README.rst
 git commit -a -m "version ${version}"
 git tag ${version} -m "tag for PyPI"
 git push --tags origin master
-python3 setup.py register -r pypi
+#python3 setup.py register -r pypi
 python3 setup.py sdist upload -r pypi
 
 echo "  Done! Occasionally you may want to remove older tags:"

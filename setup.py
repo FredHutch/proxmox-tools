@@ -1,6 +1,6 @@
 from setuptools import setup
 
-__version__ = "1.3"
+__version__ = "1.4"
 
 #try:
 #    from pypandoc import convert
