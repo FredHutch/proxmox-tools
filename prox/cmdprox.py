@@ -6,7 +6,7 @@
 #
 #  KVM and gui using easygui is experimental only
 
-import sys, os, subprocess, re, platform, getpass, argparse, logging
+import sys, os, subprocess, re, platform, getpass, argparse, logging, hostlist
 import time, warnings, functools, random, json, requests, paramiko, socket
 
 try:
@@ -24,13 +24,13 @@ with warnings.catch_warnings():
 logging.basicConfig(level=logging.WARNING)
 
 __app__ = 'Proxmox command line deployment tool'
-PROXHOST = os.getenv('PPROXHOST', 'proxa3.fhcrc.org')
+PROXHOST = os.getenv('PPROXHOST', 'proxa1.fhcrc.org')
 REALM = os.getenv('PREALM', 'FHCRC.ORG')
-LXCTEMPLATE = os.getenv('PLXCTEMPLATE', 'proxnfs:vztmpl/ubuntu-16.04-standard_16.04-1_amd64.tar.gz')
-STORLOC = os.getenv('PSTORLOC', 'proxazfs')
+LXCIMAGE = os.getenv('PLXCIMAGE', 'proxnfs:vztmpl/ubuntu-16.04-standard_16.04-1_amd64.tar.gz')
+STORLOC = os.getenv('PSTORLOC', 'proxZFS')
 STORNET = os.getenv('PSTORNET', 'proxnfs')
 USERDB = os.getenv('PUSERDB', 'https://toolbox.fhcrc.org/json/sc_users.json')
-EXCLUDEHOSTS = ['proxa5', 'proxa1', 'proxa2', 'proxa4']
+EXCLUDEHOSTS = ['proxa5']
 CHEFVERSION = '12.19.36'
 
 homedir = os.path.expanduser("~")
@@ -81,7 +81,7 @@ def parse_arguments():
         help='hostname(s) of VM/containers (separated by space), ' +
               '   example: prox stop host1 host2 host3')
     # ***
-    parser_destroy = subparsers.add_parser('destroy', aliases=['delete'], 
+    parser_destroy = subparsers.add_parser('destroy', aliases=['delete', 'rm'], 
         help='delete the hosts(s) from disk')
     parser_destroy.add_argument('hosts', action='store', default=[],  nargs='*',
         help='hostname(s) of VM/containers (separated by space), ' +
@@ -134,9 +134,11 @@ def parse_arguments():
     parser_new.add_argument('--cores', '-c', dest='cores', action='store', default='2', 
         help='Number of cores to be allocated for the machine. Default: 2')           
     parser_new.add_argument('--ubuntu', '-u', dest='ubuntu', action='store', default='',
-        help='Ubuntu version: 16.04, 17.10 or 18.04')
+        help='Ubuntu version: 14.04, 16.04, 17.10 or 18.04')
     parser_new.add_argument( '--store-net', '-s', dest='stornet', action='store_true', default=False,
         help="use networked storage with backup (nfs, ceph) instead of local storage")
+    parser_new.add_argument( '--docker', '-o', dest='docker', action='store_true', default=False,
+        help="install latest docker-ce on new machine")
     parser_new.add_argument( '--bootstrap', '-b', dest='bootstrap', action='store_true', default=False,
         help="auto-configure the system using Chef.")
     parser_new.add_argument( '--no-bootstrap', '-n', dest='nobootstrap', action='store_true', default=False,
@@ -147,14 +149,12 @@ def parse_arguments():
 
     return parser.parse_args()
 
-args = parse_arguments()
-
 def main():
 
     uselxc = True
     usegui = False
     user = getpass.getuser()
-
+        
     if not args.subcommand:
         print('usage: prox <command> [options] host1 host2 host3') 
         print('       Please run "prox --help"')
@@ -621,16 +621,26 @@ def main():
                 prn(
                     'creating host %s with ID %s in pool %s' %
                     (h, newcontid, pool))
+                    
+                #print(LXCIMAGE)
+                #print('moin')
+                
+                try:
+                    mydummy = LXCIMAGE
+                except:
+                    LXCIMAGE = 'proxnfs:vztmpl/ubuntu-16.04-standard_16.04-1_amd64.tar.gz'
 
+                if args.ubuntu == '14.04':
+                    LXCIMAGE = 'proxnfs:vztmpl/ubuntu-14.04-standard_14.04-1_amd64.tar.gz'
                 if args.ubuntu == '16.04':
-                    LXCTEMPLATE = 'proxnfs:vztmpl/ubuntu-16.04-standard_16.04-1_amd64.tar.gz'
+                    LXCIMAGE = 'proxnfs:vztmpl/ubuntu-16.04-standard_16.04-1_amd64.tar.gz'
                 elif args.ubuntu == '17.10':
-                    LXCTEMPLATE = 'proxnfs:vztmpl/ubuntu-17.10-standard_17.10-1_amd64.tar.gz'
+                    LXCIMAGE = 'proxnfs:vztmpl/ubuntu-17.10-standard_17.10-1_amd64.tar.gz'
                 elif args.ubuntu == '18.04':
-                    LXCTEMPLATE = 'proxnfs:vztmpl/ubuntu-18.04-standard_18.04-1_amd64.tar.gz'
+                    LXCIMAGE = 'proxnfs:vztmpl/ubuntu-18.04-standard_18.04-1_amd64.tar.gz'
 
                 post_data = {
-                    'ostemplate': LXCTEMPLATE,
+                    'ostemplate': LXCIMAGE,
                     'cpulimit': lxccores,
                     'memory': lxcmem,
                     'rootfs': lxcdisk,
@@ -640,6 +650,7 @@ def main():
                     'password': pwd,
                     'storage': storage,
                     'pool': pool,
+                    #'features': '"fuse=0,keyctl=0,mount=nfs,nesting=1"',
                     'net0': 'name=eth0,bridge=vmbr0,ip=dhcp'}
 
                 ret = p.createLXCContainer(mynode, post_data)['data']
@@ -684,7 +695,17 @@ def main():
                 # add the host keys to my local known_hosts
                 ret = subprocess.run("ssh-keyscan -t rsa %s >> %s/.ssh/known_hosts 2>/dev/null" 
                  % (h, homedir), shell=True)
-
+                
+                # potentially install docker on all machines 
+                if args.docker:
+                    print('\ninstalling docker....')
+                    install_docker(pwd, h)
+                    print ('\nfixing docker and restarting services...')
+                    fixcmds = ['sed -i "s/^ExecStartPre=\/sbin\/modprobe overlay/ExecStartPre=-\/sbin\/modprobe overlay/" /lib/systemd/system/containerd.service']
+                    fixcmds.append('systemctl daemon-reload')
+                    fixcmds.append('systemctl restart containerd docker')
+                    ssh_exec('root', pwd, fixcmds, h)
+                    
             # potentially running chef knife
             loginuser='root@'
             dobootstrap = False
@@ -716,6 +737,7 @@ def main():
             if args.runlist != '':
                 func = functools.partial(runlist_exec, pwd)
                 ret = easy_par(func, myhosts)
+
 
             prn("**** login: ssh %s%s" % (loginuser,myhosts[0]))
             ret = subprocess.run("ssh %s%s"
@@ -853,10 +875,10 @@ def start_machines(p, ourmachines, vmids, usegui=False):
 def run_chef_knife(host):
     knife = "knife bootstrap --no-host-key-verify " \
         "--ssh-user root --ssh-identity-file %s/.ssh/id_rsa_prox " \
-        "--environment scicomp-env-compute " \
+        "--environment scicomp_prod " \
         "--bootstrap-version %s " \
         '--server-url "https://chef.fhcrc.org/organizations/cit" ' \
-        "--run-list 'role[cit-base]','role[scicomp-base]' " \
+        "--run-list 'role[cit-base]','role[scicomp_base]' " \
         "--node-name %s " \
         "%s" % (homedir,CHEFVERSION,host,host)
     if host == 'hostname': 
@@ -873,9 +895,9 @@ def run_chef_knife(host):
             print ('chef/knife config dir %s/.chef does not exist.' % homedir)
 
 def run_chef_client(pwd, host):
-    chefclient = "chef-client --environment scicomp-env-compute " \
+    chefclient = "chef-client --environment scicomp_prod " \
         "--validation_key /root/.chef/cit-validator.pem " \
-        "--runlist role[cit-base],role[scicomp-base] "
+        "--runlist role[cit-base],role[scicomp_base] "
     print ('\nbootstrapping chef-client configs on %s ... please wait a few minutes ... !!!\n' % host)
     cmdlist = ['dpkg -i /opt/chef/tmp/chef_amd64.deb', chefclient]
     ssh_exec('root', pwd, cmdlist, host)
@@ -912,6 +934,17 @@ def runlist_exec(pwd, myhost):
             ssh_exec('root', pwd, commands, myhost)
     else:
         ssh_exec('root', pwd, [args.runlist.strip(),], myhost)
+
+def install_docker(pwd, myhost):
+    cmd = []
+    cmd.append('apt-get update')
+    cmd.append('apt-get install -y apt-transport-https ca-certificates curl software-properties-common')
+    cmd.append('apt-get install -y gpg-agent')
+    cmd.append('curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -')
+    cmd.append('add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"')
+    cmd.append('apt-get update')
+    cmd.append('apt-get install -y docker-ce')
+    ssh_exec('root', pwd, cmd, myhost)
 
 def ssh_exec(user, pwd, commands, host):
     """ execute list of commands via ssh """
@@ -1133,6 +1166,8 @@ def easy_par(f, sequence):
 
 if __name__ == "__main__":
     try:
+        args = parse_arguments()
+        args.hosts = hostlist.expand_hostlist("".join(args.hosts))
         main()
     except KeyboardInterrupt:
         print('Exit !')
