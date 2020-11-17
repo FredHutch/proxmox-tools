@@ -1,7 +1,7 @@
 #! /bin/bash
 
-#printf "   loading module Python 3.6\n"
-#ml fhPython > /dev/null 2>&1
+printf "   loading module fhPython\n"
+ml fhPython > /dev/null 2>&1
 
 version=$(grep ^__version__ setup.py | cut -d'"' -f2)
 
